@@ -1,0 +1,12 @@
+{
+  "schema": "chaitin.octobus.service.v1",
+  "name": "dingtalk-todo",
+  "displayName": "Dingtalk Todo",
+  "description": "DingTalk todo operations for OctoBus",
+  "proto": {
+    "roots": ["proto"],
+    "files": ["proto/todo.proto"]
+  },
+  "configSchema": "config.schema.json",
+  "secretSchema": "secret.schema.json"
+}

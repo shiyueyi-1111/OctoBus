@@ -1,0 +1,17 @@
+{
+  "name": "@office-agent/dingtalk-todo",
+  "version": "0.1.0",
+  "description": "DingTalk todo service for OctoBus",
+  "type": "module",
+  "main": "src/service.js",
+  "bin": {
+    "dingtalk-todo": "bin/dingtalk-todo.js"
+  },
+  "scripts": {
+    "start": "node bin/dingtalk-todo.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@chaitin-ai/octobus-sdk": "^0.6.0"
+  }
+}
