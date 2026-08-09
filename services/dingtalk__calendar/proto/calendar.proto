@@ -1,0 +1,96 @@
+syntax = "proto3";
+package dingtalk.calendar.v1;
+
+service CalendarService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc CreateEvent(CreateEventRequest) returns (CreateEventResponse);
+  rpc GetEvent(GetEventRequest) returns (GetEventResponse);
+  rpc UpdateEvent(UpdateEventRequest) returns (UpdateEventResponse);
+  rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+}
+
+message ListEventsRequest {
+  string start = 1;
+  string end = 2;
+  string profile = 3;
+}
+
+message CalendarEvent {
+  string id = 1;
+  string summary = 2;
+  string start = 3;
+  string end = 4;
+  bool is_all_day = 5;
+  string description = 6;
+  string location = 7;
+  repeated string attendees = 8;
+}
+
+message ListEventsResponse {
+  bool success = 1;
+  repeated CalendarEvent events = 2;
+  string error = 3;
+}
+
+message CreateEventRequest {
+  string title = 1;
+  string start = 2;
+  string end = 3;
+  string location = 4;
+  repeated string attendees = 5;
+  string description = 6;
+  string timezone = 7;
+  repeated string open_dingtalk_ids = 8;
+}
+
+message CreateEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  string error = 3;
+}
+
+message GetEventRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+}
+
+message GetEventResponse {
+  bool success = 1;
+  CalendarEvent event = 2;
+  string error = 3;
+  string error_code = 4;
+}
+
+message UpdateEventRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+  optional string title = 4;
+  optional string start = 5;
+  optional string end = 6;
+  optional string description = 7;
+  optional string timezone = 8;
+}
+
+message UpdateEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  string error = 3;
+  string error_code = 4;
+  bool outcome_uncertain = 5;
+}
+
+message DeleteEventRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+}
+
+message DeleteEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  string error = 3;
+  string error_code = 4;
+  bool outcome_uncertain = 5;
+}

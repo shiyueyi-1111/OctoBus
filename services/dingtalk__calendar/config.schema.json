@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "dwsPath": {
+      "type": "string",
+      "description": "dws CLI path",
+      "default": "dws"
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "description": "dws command timeout in milliseconds",
+      "default": 60000,
+      "minimum": 1000
+    }
+  }
+}

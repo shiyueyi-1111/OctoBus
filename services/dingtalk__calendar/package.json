@@ -1,0 +1,12 @@
+{
+  "name": "dingtalk-calendar",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "dingtalk-calendar": "bin/dingtalk-calendar.js"
+  },
+  "dependencies": {
+    "@chaitin-ai/octobus-sdk": "^0.6.0"
+  }
+}
