@@ -14,7 +14,10 @@ function normalizeEvent(value) {
     description: String(event.description ?? ""),
     location: String(event.location?.displayName ?? event.location ?? ""),
     attendees: Array.isArray(event.attendees)
-      ? event.attendees.map((attendee) => String(attendee?.displayName ?? attendee?.name ?? attendee ?? ""))
+      ? event.attendees.map((attendee) => String(
+        attendee?.userId ?? attendee?.id ?? attendee?.openDingTalkId
+        ?? attendee?.displayName ?? attendee?.name ?? attendee ?? "",
+      ))
       : [],
   };
 }
@@ -66,6 +69,35 @@ function validateIdentity(request) {
 
 function addPresentFlag(args, request, key, flag) {
   if (isPresent(request, key)) args.push(flag, String(request[key]));
+}
+
+async function mutateAttendees(ctx, runDws, { requestField, command }) {
+  const request = ctx.request ?? {};
+  const identity = validateIdentity(request);
+  if (identity.success === false) return identity;
+  const attendees = Array.isArray(request[requestField])
+    ? request[requestField].map((value) => String(value).trim())
+    : [];
+  if (attendees.length === 0 || attendees.some((value) => value === "")) {
+    return validationFailure(`${requestField} must contain stable attendee IDs`);
+  }
+  const response = await runDws(
+    ctx,
+    [
+      "calendar", "attendee", command, "--event", identity.eventId,
+      "--attendees", attendees.join(","), "--calendar-id", identity.calendarId,
+      "--profile", identity.profile,
+    ],
+    { write: true },
+  );
+  if (!response.success) return upstreamFailure(response);
+  return {
+    success: true,
+    eventId: identity.eventId,
+    error: "",
+    errorCode: "",
+    outcomeUncertain: false,
+  };
 }
 
 export function createCalendarHandlers({ runDws }) {
@@ -209,5 +241,17 @@ export function createCalendarHandlers({ runDws }) {
         outcomeUncertain: false,
       };
     },
+
+    "dingtalk.calendar.v1.CalendarService/AddEventAttendees": async (ctx) =>
+      mutateAttendees(ctx, runDws, {
+        requestField: "attendeesToAdd",
+        command: "add",
+      }),
+
+    "dingtalk.calendar.v1.CalendarService/RemoveEventAttendees": async (ctx) =>
+      mutateAttendees(ctx, runDws, {
+        requestField: "attendeesToRemove",
+        command: "delete",
+      }),
   };
 }

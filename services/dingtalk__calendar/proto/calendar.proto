@@ -7,6 +7,8 @@ service CalendarService {
   rpc GetEvent(GetEventRequest) returns (GetEventResponse);
   rpc UpdateEvent(UpdateEventRequest) returns (UpdateEventResponse);
   rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
+  rpc AddEventAttendees(AddEventAttendeesRequest) returns (AttendeeMutationResponse);
+  rpc RemoveEventAttendees(RemoveEventAttendeesRequest) returns (AttendeeMutationResponse);
 }
 
 message ListEventsRequest {
@@ -88,6 +90,28 @@ message DeleteEventRequest {
 }
 
 message DeleteEventResponse {
+  bool success = 1;
+  string event_id = 2;
+  string error = 3;
+  string error_code = 4;
+  bool outcome_uncertain = 5;
+}
+
+message AddEventAttendeesRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+  repeated string attendees_to_add = 4;
+}
+
+message RemoveEventAttendeesRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+  repeated string attendees_to_remove = 4;
+}
+
+message AttendeeMutationResponse {
   bool success = 1;
   string event_id = 2;
   string error = 3;

@@ -1,5 +1,6 @@
 # DingTalk Calendar
 
-OctoBus service for DingTalk calendar list, create, get, update, and delete operations.
+OctoBus service for DingTalk calendar list, create, get, update, delete, and attendee add/remove operations.
 
-Update and delete require a stable event ID and an explicit `corpId:userId` profile.
+Update, delete, and attendee mutations require a stable event ID and an explicit `corpId:userId` profile.
+Attendee mutations use the dedicated DWS `calendar attendee add/delete` commands; they are not fields of `UpdateEvent`.

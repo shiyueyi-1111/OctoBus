@@ -14,10 +14,13 @@ function readRequired(path, label) {
   return readFileSync(path, "utf8");
 }
 
-test("tracked Calendar proto preserves List/Create and adds Get/Update/Delete", () => {
+test("tracked Calendar proto preserves existing RPCs and adds attendee mutations", () => {
   const proto = readRequired(resolve(serviceRoot, "proto/calendar.proto"), "Calendar proto");
 
-  for (const rpc of ["ListEvents", "CreateEvent", "GetEvent", "UpdateEvent", "DeleteEvent"]) {
+  for (const rpc of [
+    "ListEvents", "CreateEvent", "GetEvent", "UpdateEvent", "DeleteEvent",
+    "AddEventAttendees", "RemoveEventAttendees",
+  ]) {
     assert.match(proto, new RegExp(`rpc ${rpc}\\(`), `${rpc} RPC must be declared`);
   }
   assert.match(proto, /message CalendarEvent\s*\{[\s\S]*string id = 1;/);
@@ -27,12 +30,17 @@ test("tracked Calendar proto preserves List/Create and adds Get/Update/Delete", 
   assert.match(proto, /optional string description = 7;/);
   assert.match(proto, /optional string timezone = 8;/);
   assert.match(proto, /message ListEventsRequest\s*\{[\s\S]*string profile = 3;/);
+  assert.match(proto, /message AddEventAttendeesRequest\s*\{[\s\S]*repeated string attendees_to_add = 4;/);
+  assert.match(proto, /message RemoveEventAttendeesRequest\s*\{[\s\S]*repeated string attendees_to_remove = 4;/);
 });
 
 test("tracked Calendar service exposes all handlers and requires per-request profile", () => {
   const source = readRequired(resolve(serviceRoot, "src/calendar.js"), "Calendar handlers");
 
-  for (const method of ["ListEvents", "CreateEvent", "GetEvent", "UpdateEvent", "DeleteEvent"]) {
+  for (const method of [
+    "ListEvents", "CreateEvent", "GetEvent", "UpdateEvent", "DeleteEvent",
+    "AddEventAttendees", "RemoveEventAttendees",
+  ]) {
     assert.match(
       source,
       new RegExp(`dingtalk\\.calendar\\.v1\\.CalendarService/${method}`),
@@ -159,6 +167,28 @@ test("GetEvent passes stable IDs and profile and normalizes CalendarEvent", asyn
   }]);
 });
 
+test("GetEvent preserves stable attendee IDs for mutation readback", async () => {
+  const { handlers } = createHarness([{
+    success: true,
+    data: {
+      result: {
+        id: "evt-get",
+        attendees: [
+          { userId: "staff-1", displayName: "参与人甲" },
+          { id: "staff-2", name: "参与人乙" },
+          { displayName: "仅名称兼容" },
+        ],
+      },
+    },
+  }]);
+
+  const result = await handlers["dingtalk.calendar.v1.CalendarService/GetEvent"]({
+    request: { eventId: "evt-get", calendarId: "primary", profile: "corp-a:user-a" },
+  });
+
+  assert.deepEqual(result.event.attendees, ["staff-1", "staff-2", "仅名称兼容"]);
+});
+
 test("ListEvents passes an explicit profile without changing profile-optional compatibility", async () => {
   const { calls, handlers } = createHarness([{ success: true, data: { result: { events: [] } } }]);
 
@@ -279,6 +309,104 @@ test("Update/Delete propagate transport uncertainty without replay", async () =>
     };
 
     const result = await harness.handlers[`dingtalk.calendar.v1.CalendarService/${method}`]({ request });
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "DWS_TIMEOUT");
+    assert.equal(result.outcomeUncertain, true);
+    assert.equal(harness.calls.length, 1);
+  }
+});
+
+test("AddEventAttendees maps stable identity and attendee IDs to DWS once", async () => {
+  const harness = createHarness([{ success: true, data: { result: {} } }]);
+  const result = await harness.handlers[
+    "dingtalk.calendar.v1.CalendarService/AddEventAttendees"
+  ]({
+    request: {
+      eventId: "evt-attendee",
+      calendarId: "primary",
+      profile: "corp-a:user-a",
+      attendeesToAdd: ["staff-1", "staff-2"],
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.eventId, "evt-attendee");
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "calendar", "attendee", "add", "--event", "evt-attendee",
+      "--attendees", "staff-1,staff-2", "--calendar-id", "primary",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: true },
+  }]);
+});
+
+test("RemoveEventAttendees maps stable identity and attendee IDs to DWS once", async () => {
+  const harness = createHarness([{ success: true, data: { result: {} } }]);
+  const result = await harness.handlers[
+    "dingtalk.calendar.v1.CalendarService/RemoveEventAttendees"
+  ]({
+    request: {
+      eventId: "evt-attendee",
+      calendarId: "primary",
+      profile: "corp-a:user-a",
+      attendeesToRemove: ["staff-2"],
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.eventId, "evt-attendee");
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "calendar", "attendee", "delete", "--event", "evt-attendee",
+      "--attendees", "staff-2", "--calendar-id", "primary",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: true },
+  }]);
+});
+
+test("attendee mutations validate identity and non-empty stable attendee IDs", async () => {
+  for (const method of ["AddEventAttendees", "RemoveEventAttendees"]) {
+    for (const request of [
+      { eventId: "", calendarId: "primary", profile: "corp-a:user-a", attendeesToAdd: ["staff-1"], attendeesToRemove: ["staff-1"] },
+      { eventId: "evt", calendarId: "primary", profile: "", attendeesToAdd: ["staff-1"], attendeesToRemove: ["staff-1"] },
+      { eventId: "evt", calendarId: "primary", profile: "corp-a:user-a", attendeesToAdd: [], attendeesToRemove: [] },
+      { eventId: "evt", calendarId: "primary", profile: "corp-a:user-a", attendeesToAdd: [""], attendeesToRemove: [""] },
+    ]) {
+      const harness = createHarness();
+      const result = await harness.handlers[
+        `dingtalk.calendar.v1.CalendarService/${method}`
+      ]({ request });
+      assert.equal(result.success, false);
+      assert.equal(result.errorCode, "INVALID_ARGUMENT");
+      assert.equal(result.outcomeUncertain, false);
+      assert.equal(harness.calls.length, 0);
+    }
+  }
+});
+
+test("attendee mutation transport uncertainty is returned without replay", async () => {
+  for (const method of ["AddEventAttendees", "RemoveEventAttendees"]) {
+    const harness = createHarness([{
+      success: false,
+      error: "Calendar attendee write result is uncertain",
+      errorCode: "DWS_TIMEOUT",
+      outcomeUncertain: true,
+    }]);
+    const attendeeField = method === "AddEventAttendees"
+      ? { attendeesToAdd: ["staff-1"] }
+      : { attendeesToRemove: ["staff-1"] };
+    const result = await harness.handlers[
+      `dingtalk.calendar.v1.CalendarService/${method}`
+    ]({
+      request: {
+        eventId: "evt-attendee",
+        calendarId: "primary",
+        profile: "corp-a:user-a",
+        ...attendeeField,
+      },
+    });
     assert.equal(result.success, false);
     assert.equal(result.errorCode, "DWS_TIMEOUT");
     assert.equal(result.outcomeUncertain, true);
