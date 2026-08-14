@@ -24,6 +24,7 @@ test("tracked Calendar proto preserves existing RPCs and adds attendee mutations
     assert.match(proto, new RegExp(`rpc ${rpc}\\(`), `${rpc} RPC must be declared`);
   }
   assert.match(proto, /message CalendarEvent\s*\{[\s\S]*string id = 1;/);
+  assert.match(proto, /string status = 9;/);
   assert.match(proto, /message UpdateEventRequest\s*\{[\s\S]*optional string title = 4;/);
   assert.match(proto, /optional string start = 5;/);
   assert.match(proto, /optional string end = 6;/);
@@ -139,6 +140,7 @@ test("GetEvent passes stable IDs and profile and normalizes CalendarEvent", asyn
         start: { dateTime: "2026-08-09T13:00:00+08:00" },
         end: { dateTime: "2026-08-09T14:00:00+08:00" },
         description: "复盘要点",
+        status: "cancelled",
       },
     },
   }]);
@@ -157,6 +159,7 @@ test("GetEvent passes stable IDs and profile and normalizes CalendarEvent", asyn
     description: "复盘要点",
     location: "",
     attendees: [],
+    status: "cancelled",
   });
   assert.deepEqual(calls, [{
     args: [

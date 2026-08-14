@@ -26,6 +26,7 @@ message CalendarEvent {
   string description = 6;
   string location = 7;
   repeated string attendees = 8;
+  string status = 9;
 }
 
 message ListEventsResponse {

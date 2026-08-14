@@ -19,6 +19,7 @@ function normalizeEvent(value) {
         ?? attendee?.displayName ?? attendee?.name ?? attendee ?? "",
       ))
       : [],
+    status: String(event.status ?? ""),
   };
 }
 
