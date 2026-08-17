@@ -57,6 +57,27 @@ test("runDws classifies business failures without exposing upstream details", as
   assert.doesNotMatch(JSON.stringify(result), /secret|10\.0\.0\.1/);
 });
 
+test("runDws classifies the current dws error envelope as a business failure", async () => {
+  const { path } = await fakeDws([
+    "process.stdout.write(JSON.stringify({ error: { reason: 'business_error', code: 1, server_error_code: '500' } }));",
+    "process.exitCode = 1;",
+  ]);
+
+  const result = await runDws(
+    { config: { dwsPath: path, timeoutMs: 5000 } },
+    ["calendar", "room", "add", "--event", "event-17", "--rooms", "room-17"],
+    { write: true },
+  );
+
+  assert.deepEqual(result, {
+    success: false,
+    data: null,
+    error: "DingTalk calendar operation failed",
+    errorCode: "DWS_BUSINESS_ERROR",
+    outcomeUncertain: false,
+  });
+});
+
 test("runDws preserves only an allowlisted stable not-found code", async () => {
   const { path } = await fakeDws([
     "process.stdout.write(JSON.stringify({ success: false, code: 'NOT_FOUND', message: 'token=secret upstream=10.0.0.1' }));",

@@ -35,7 +35,11 @@ function parseJson(stdout) {
 function isBusinessFailure(data) {
   if (data == null || typeof data !== "object") return false;
   const status = String(data.status ?? "").toLowerCase();
-  return data.success === false || status === "error" || status === "failed";
+  const nestedError = data.error && typeof data.error === "object" ? data.error : {};
+  return data.success === false
+    || status === "error"
+    || status === "failed"
+    || String(nestedError.reason ?? "").toLowerCase() === "business_error";
 }
 
 function stableBusinessErrorCode(data) {

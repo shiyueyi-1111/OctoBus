@@ -347,7 +347,7 @@ export function createCalendarHandlers({ runDws }) {
       const response = await runDws(ctx, args, { write: false });
       if (!response.success) return { ...upstreamFailure(response), rooms: [] };
       const result = resultPayload(response);
-      const rawRooms = result?.rooms ?? result?.items ?? result ?? [];
+      const rawRooms = result?.rooms ?? result?.items ?? result?.result ?? result ?? [];
       const rooms = Array.isArray(rawRooms)
         ? rawRooms.map(normalizeRoom).filter((room) => room.roomId !== "")
         : [];

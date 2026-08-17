@@ -47,8 +47,14 @@ export async function runDws(ctx, args, { write = false } = {}) {
       }
 
       const status = data && typeof data === "object" ? String(data.status || "").toLowerCase() : "";
+      const errorEnvelope = data?.error && typeof data.error === "object" ? data.error : {};
       const businessFailed = data && typeof data === "object"
-        && (data.success === false || status === "error" || status === "failed");
+        && (
+          data.success === false
+          || status === "error"
+          || status === "failed"
+          || String(errorEnvelope.reason || "").toLowerCase() === "business_error"
+        );
       if (businessFailed) {
         const nestedError = data?.error && typeof data.error === "object" ? data.error : {};
         const rawCode = String(data?.errorCode ?? data?.code ?? nestedError.code ?? "").toUpperCase();

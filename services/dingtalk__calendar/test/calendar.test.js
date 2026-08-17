@@ -465,6 +465,38 @@ test("SearchRooms maps a stable profile and exact time window to DWS", async () 
   }]);
 });
 
+test("SearchRooms unwraps the current dws nested result", async () => {
+  const harness = createHarness([{
+    success: true,
+    data: {
+      success: true,
+      result: {
+        hasMore: true,
+        result: [{
+          roomId: "room-current-1",
+          roomName: "机器人测试会议室",
+          groupId: "group-current-1",
+          customApprovalProcess: false,
+          supportRecurring: true,
+        }],
+      },
+    },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.calendar.v1.CalendarService/SearchRooms"
+  ]({ request: { profile: "corp-a:user-a" } });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(result.rooms, [{
+    roomId: "room-current-1",
+    name: "机器人测试会议室",
+    groupId: "group-current-1",
+    customApprovalProcess: false,
+    supportRecurring: true,
+  }]);
+});
+
 test("QueryRoomBusy requires room IDs and returns the exact DWS result", async () => {
   const busyResult = { schedules: [{ eventId: "event-17" }] };
   const harness = createHarness([{

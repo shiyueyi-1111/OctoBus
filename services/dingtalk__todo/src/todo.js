@@ -7,6 +7,17 @@ function resultPayload(response) {
   return response.data?.result ?? response.data;
 }
 
+function todoListPayload(response) {
+  const result = resultPayload(response);
+  const list = result?.todoCards ?? result?.todoList ?? result;
+  return Array.isArray(list) ? list : [];
+}
+
+function todoDetailPayload(response) {
+  const result = resultPayload(response);
+  return result?.todoDetailModel ?? result?.todo ?? result?.task ?? result;
+}
+
 function normalizeTodo(value) {
   const todo = value?.todo ?? value ?? {};
   const dueDate = todo.dueTime ?? todo.dueDate ?? "";
@@ -103,11 +114,7 @@ export function createTodoHandlers({ runDws }) {
         };
       }
 
-      const raw = response.data?.result?.todoList
-        || response.data?.result
-        || response.data?.todoList
-        || [];
-      const list = Array.isArray(raw) ? raw : [];
+      const list = todoListPayload(response);
       const hasRange = Boolean(startAt && endAt);
       const start = hasRange ? Date.parse(startAt) : Number.NEGATIVE_INFINITY;
       const end = hasRange ? Date.parse(endAt) : Number.POSITIVE_INFINITY;
@@ -156,8 +163,7 @@ export function createTodoHandlers({ runDws }) {
         return { success: false, matchedCount: 0, error: listResponse.error };
       }
 
-      const raw = listResponse.data?.result?.todoList || listResponse.data?.result || [];
-      const list = Array.isArray(raw) ? raw : [];
+      const list = todoListPayload(listResponse);
       let matchedCount = 0;
       for (const item of list) {
         const subject = item.subject || item.title || "";
@@ -189,7 +195,7 @@ export function createTodoHandlers({ runDws }) {
       if (!response.success) return { ...upstreamFailure(response), todo: undefined };
       return {
         success: true,
-        todo: normalizeTodo(resultPayload(response)),
+        todo: normalizeTodo(todoDetailPayload(response)),
         error: "",
         errorCode: "",
       };

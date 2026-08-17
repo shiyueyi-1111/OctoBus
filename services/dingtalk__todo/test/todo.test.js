@@ -93,6 +93,41 @@ test("ListTodos keeps the legacy unbounded list behavior", async () => {
 });
 
 
+test("ListTodos normalizes the current dws todoCards response", async () => {
+  const runDws = async () => ({
+    success: true,
+    data: {
+      result: {
+        todoCards: [{
+          taskId: "todo-current-1",
+          subject: "机器人测试客户回访",
+          isDone: false,
+          dueTime: 1787056800000,
+          createdTime: 1786970400000,
+          priority: 30,
+        }],
+      },
+    },
+  });
+  const handlers = createTodoHandlers({ runDws });
+
+  const result = await handlers["dingtalk.todo.v1.TodoService/ListTodos"]({
+    request: { isDone: false, fetchLimit: 50 },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.fetchedCount, 1);
+  assert.deepEqual(result.todos, [{
+    todoId: "todo-current-1",
+    title: "机器人测试客户回访",
+    description: "",
+    isDone: false,
+    dueDate: "1787056800000",
+    createdAt: "1786970400000",
+  }]);
+});
+
+
 test("CreateTodo and MarkDone preserve the installed package behavior", async () => {
   const calls = [];
   const runDws = async (_ctx, args) => {
@@ -169,6 +204,35 @@ test("GetTodo maps stable identity and normalizes the task", async () => {
     ],
     options: { write: false },
   }]);
+});
+
+
+test("GetTodo unwraps the current dws todoDetailModel response", async () => {
+  const harness = createHarness([{
+    success: true,
+    data: {
+      success: true,
+      result: {
+        todoDetailModel: {
+          taskId: "todo-current-1",
+          subject: "机器人测试客户回访",
+          isDone: false,
+          dueTime: 1787056800000,
+          createdTime: 1786970400000,
+          priority: 30,
+        },
+      },
+    },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/GetTodo"
+  ]({ request: { todoId: "todo-current-1", profile: "corp-a:user-a" } });
+
+  assert.equal(result.success, true);
+  assert.equal(result.todo.todoId, "todo-current-1");
+  assert.equal(result.todo.title, "机器人测试客户回访");
+  assert.equal(result.todo.priority, 30);
 });
 
 

@@ -67,3 +67,28 @@ test("runDws reports a timed-out write as uncertain without replay", async () =>
   assert.equal(result.outcomeUncertain, true);
   assert.equal(await readFile(countPath, "utf8"), "1");
 });
+
+test("runDws classifies the current dws error envelope as a business failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dingtalk-todo-dws-business-error-"));
+  const fakeDws = join(dir, "fake-dws.js");
+  await writeFile(
+    fakeDws,
+    [
+      "#!/usr/bin/env node",
+      "process.stdout.write(JSON.stringify({",
+      "  error: { reason: 'business_error', code: 1, server_error_code: '500' },",
+      "}));",
+      "process.exitCode = 1;",
+    ].join("\n"),
+  );
+  await chmod(fakeDws, 0o755);
+
+  const result = await runDws(
+    { config: { dwsPath: fakeDws, timeoutMs: 5000 } },
+    ["todo", "task", "get", "--task-id", "missing"],
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "DWS_BUSINESS_ERROR");
+  assert.equal(result.outcomeUncertain, false);
+});
