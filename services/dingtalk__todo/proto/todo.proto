@@ -29,6 +29,7 @@ message ListTodosRequest {
   string start_at = 3;      // ISO-8601 inclusive boundary
   string end_at = 4;        // ISO-8601 exclusive boundary
   int32 fetch_limit = 5;
+  string profile = 6;       // Stable corpId:userId selector (optional for compatibility)
 }
 
 message TodoItem {
@@ -85,6 +86,7 @@ message UpdateTodoRequest {
 message DeleteTodoRequest {
   string todo_id = 1;
   string profile = 2;
+  bool confirmed = 3;
 }
 
 message TodoMutationResponse {

@@ -78,6 +78,38 @@ test("runDws classifies the current dws error envelope as a business failure", a
   });
 });
 
+test("runDws treats a typed dws validation envelope as a determined failure", async () => {
+  const { path } = await fakeDws([
+    "process.stdout.write(JSON.stringify({ error: { category: 'validation', code: 3, message: '[RESOURCE_NOT_FOUND] missing' } }));",
+    "process.exitCode = 1;",
+  ]);
+
+  const result = await runDws(
+    { config: { dwsPath: path, timeoutMs: 5000 } },
+    ["calendar", "room", "add", "--event", "event-17", "--rooms", "room-17"],
+    { write: true },
+  );
+
+  assert.equal(result.errorCode, "DWS_BUSINESS_ERROR");
+  assert.equal(result.outcomeUncertain, false);
+});
+
+test("runDws keeps a typed transport envelope uncertain after a write", async () => {
+  const { path } = await fakeDws([
+    "process.stdout.write(JSON.stringify({ error: { category: 'transport', code: 14, message: 'upstream unavailable' } }));",
+    "process.exitCode = 1;",
+  ]);
+
+  const result = await runDws(
+    { config: { dwsPath: path, timeoutMs: 5000 } },
+    ["calendar", "room", "add", "--event", "event-17", "--rooms", "room-17"],
+    { write: true },
+  );
+
+  assert.equal(result.errorCode, "DWS_TRANSPORT_ERROR");
+  assert.equal(result.outcomeUncertain, true);
+});
+
 test("runDws preserves only an allowlisted stable not-found code", async () => {
   const { path } = await fakeDws([
     "process.stdout.write(JSON.stringify({ success: false, code: 'NOT_FOUND', message: 'token=secret upstream=10.0.0.1' }));",

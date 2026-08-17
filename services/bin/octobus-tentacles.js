@@ -133,6 +133,10 @@ const services = {
     entryFile: "../dingtalk__calendar/bin/dingtalk-calendar.js",
     serviceModule: "../dingtalk__calendar/src/service.js",
   },
+  "dingtalk-todo": {
+    entryFile: "../dingtalk__todo/bin/dingtalk-todo.js",
+    serviceModule: "../dingtalk__todo/src/service.js",
+  },
   "dsensor": {
     entryFile: "../chaitin__dsensor_ds-s_h_40-25.07.001/bin/dsensor.js",
     serviceModule: "../chaitin__dsensor_ds-s_h_40-25.07.001/src/service.js",

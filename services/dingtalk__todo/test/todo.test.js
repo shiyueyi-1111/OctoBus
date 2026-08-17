@@ -93,6 +93,25 @@ test("ListTodos keeps the legacy unbounded list behavior", async () => {
 });
 
 
+test("ListTodos binds the requested stable profile", async () => {
+  const calls = [];
+  const runDws = async (_ctx, args) => {
+    calls.push(args);
+    return { success: true, data: { result: { todoList: [] } } };
+  };
+  const handlers = createTodoHandlers({ runDws });
+
+  await handlers["dingtalk.todo.v1.TodoService/ListTodos"]({
+    request: { isDone: false, limit: 10, profile: "corp-a:user-a" },
+  });
+
+  assert.deepEqual(calls, [[
+    "todo", "task", "list", "--size", "10", "--status", "false",
+    "--profile", "corp-a:user-a",
+  ]]);
+});
+
+
 test("ListTodos normalizes the current dws todoCards response", async () => {
   const runDws = async () => ({
     success: true,
@@ -264,12 +283,26 @@ test("UpdateTodo maps only requested fields and writes exactly once", async () =
 });
 
 
-test("DeleteTodo uses the stable task ID and writes exactly once", async () => {
+test("DeleteTodo rejects an unconfirmed request before DWS", async () => {
+  const harness = createHarness();
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/DeleteTodo"
+  ]({ request: { todoId: "todo-17", profile: "corp-a:user-a", confirmed: false } });
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "CONFIRMATION_REQUIRED");
+  assert.equal(result.outcomeUncertain, false);
+  assert.equal(harness.calls.length, 0);
+});
+
+
+test("DeleteTodo uses the stable task ID and writes exactly once after confirmation", async () => {
   const harness = createHarness([{ success: true, data: { result: { id: "todo-17" } } }]);
 
   const result = await harness.handlers[
     "dingtalk.todo.v1.TodoService/DeleteTodo"
-  ]({ request: { todoId: "todo-17", profile: "corp-a:user-a" } });
+  ]({ request: { todoId: "todo-17", profile: "corp-a:user-a", confirmed: true } });
 
   assert.equal(result.success, true);
   assert.equal(result.todoId, "todo-17");
@@ -278,7 +311,7 @@ test("DeleteTodo uses the stable task ID and writes exactly once", async () => {
       "todo", "task", "delete", "--task-id", "todo-17",
       "--profile", "corp-a:user-a",
     ],
-    options: { write: true },
+    options: { write: true, confirmed: true },
   }]);
 });
 
@@ -313,6 +346,7 @@ test("todo write transport uncertainty is returned without replay", async () => 
       todoId: "todo-17",
       profile: "corp-a:user-a",
       ...(method === "UpdateTodo" ? { title: "新标题" } : {}),
+      ...(method === "DeleteTodo" ? { confirmed: true } : {}),
     };
 
     const result = await harness.handlers[

@@ -36,9 +36,12 @@ function isBusinessFailure(data) {
   if (data == null || typeof data !== "object") return false;
   const status = String(data.status ?? "").toLowerCase();
   const nestedError = data.error && typeof data.error === "object" ? data.error : {};
+  const errorCategory = String(nestedError.category ?? "").toLowerCase();
   return data.success === false
     || status === "error"
     || status === "failed"
+    || errorCategory === "validation"
+    || errorCategory === "business"
     || String(nestedError.reason ?? "").toLowerCase() === "business_error";
 }
 

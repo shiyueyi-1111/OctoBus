@@ -99,6 +99,23 @@ export function createTodoHandlers({ runDws }) {
         "todo", "task", "list", "--size", String(fetchLimit),
         "--status", isDone ? "true" : "false",
       ];
+      const profile = String(ctx.request.profile ?? "").trim();
+      if (profile) {
+        const parts = profile.split(":");
+        if (parts.length !== 2 || parts.some((part) => part.trim() === "" || /\s/.test(part))) {
+          return {
+            success: false,
+            todos: [],
+            complete: false,
+            fetchedCount: 0,
+            excludedWithoutDueAt: 0,
+            rangeStart: startAt || "",
+            rangeEnd: endAt || "",
+            error: "profile must use corpId:userId format",
+          };
+        }
+        args.push("--profile", profile);
+      }
 
       const response = await runDws(ctx, args);
       if (!response.success) {
@@ -231,13 +248,22 @@ export function createTodoHandlers({ runDws }) {
     "dingtalk.todo.v1.TodoService/DeleteTodo": async (ctx) => {
       const identity = validateIdentity(ctx.request);
       if (identity.success === false) return identity;
+      if (ctx.request?.confirmed !== true) {
+        return {
+          success: false,
+          todoId: identity.todoId,
+          error: "explicit confirmation is required",
+          errorCode: "CONFIRMATION_REQUIRED",
+          outcomeUncertain: false,
+        };
+      }
       const response = await runDws(
         ctx,
         [
           "todo", "task", "delete", "--task-id", identity.todoId,
           "--profile", identity.profile,
         ],
-        { write: true },
+        { write: true, confirmed: true },
       );
       if (!response.success) return upstreamFailure(response);
       return {

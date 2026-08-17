@@ -35,6 +35,40 @@ test("runDws uses configured dwsPath and passes arguments without shell wrapping
     "list",
     "--size",
     "3",
+    "--format",
+    "json",
+  ]);
+});
+
+test("runDws appends --yes only for an explicitly confirmed request", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dingtalk-todo-dws-confirmed-"));
+  const logPath = join(dir, "args.json");
+  const fakeDws = join(dir, "fake-dws.js");
+
+  await writeFile(
+    fakeDws,
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      `fs.writeFileSync(${JSON.stringify(logPath)}, JSON.stringify(process.argv.slice(2)));`,
+      "process.stdout.write(JSON.stringify({ success: true, result: {} }));",
+    ].join("\n"),
+  );
+  await chmod(fakeDws, 0o755);
+
+  const result = await runDws(
+    { config: { dwsPath: fakeDws, timeoutMs: 5000 } },
+    ["todo", "task", "delete", "--task-id", "todo-17"],
+    { write: true, confirmed: true },
+  );
+
+  assert.equal(result.success, true);
+  assert.deepEqual(JSON.parse(await readFile(logPath, "utf8")), [
+    "todo",
+    "task",
+    "delete",
+    "--task-id",
+    "todo-17",
     "--yes",
     "--format",
     "json",
@@ -91,4 +125,54 @@ test("runDws classifies the current dws error envelope as a business failure", a
   assert.equal(result.success, false);
   assert.equal(result.errorCode, "DWS_BUSINESS_ERROR");
   assert.equal(result.outcomeUncertain, false);
+});
+
+test("runDws treats a typed dws validation envelope as a determined failure", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dingtalk-todo-dws-validation-error-"));
+  const fakeDws = join(dir, "fake-dws.js");
+  await writeFile(
+    fakeDws,
+    [
+      "#!/usr/bin/env node",
+      "process.stdout.write(JSON.stringify({",
+      "  error: { category: 'validation', code: 3, message: '[RESOURCE_NOT_FOUND] missing' },",
+      "}));",
+      "process.exitCode = 1;",
+    ].join("\n"),
+  );
+  await chmod(fakeDws, 0o755);
+
+  const result = await runDws(
+    { config: { dwsPath: fakeDws, timeoutMs: 5000 } },
+    ["todo", "task", "delete", "--task-id", "missing"],
+    { write: true },
+  );
+
+  assert.equal(result.errorCode, "DWS_BUSINESS_ERROR");
+  assert.equal(result.outcomeUncertain, false);
+});
+
+test("runDws keeps a typed transport envelope uncertain after a write", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dingtalk-todo-dws-transport-error-"));
+  const fakeDws = join(dir, "fake-dws.js");
+  await writeFile(
+    fakeDws,
+    [
+      "#!/usr/bin/env node",
+      "process.stdout.write(JSON.stringify({",
+      "  error: { category: 'transport', code: 14, message: 'upstream unavailable' },",
+      "}));",
+      "process.exitCode = 1;",
+    ].join("\n"),
+  );
+  await chmod(fakeDws, 0o755);
+
+  const result = await runDws(
+    { config: { dwsPath: fakeDws, timeoutMs: 5000 } },
+    ["todo", "task", "delete", "--task-id", "todo-17"],
+    { write: true, confirmed: true },
+  );
+
+  assert.equal(result.errorCode, "DWS_TRANSPORT_ERROR");
+  assert.equal(result.outcomeUncertain, true);
 });

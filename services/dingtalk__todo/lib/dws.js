@@ -27,14 +27,17 @@ function failure(errorCode, { write = false, business = false } = {}) {
   };
 }
 
-export async function runDws(ctx, args, { write = false } = {}) {
+export async function runDws(ctx, args, { write = false, confirmed = false } = {}) {
   const config = ctx.config ?? {};
   const dwsPath = config.dwsPath || process.env.DWS_PATH || "dws";
   const rawTimeout = Number(config.timeoutMs || process.env.DWS_TIMEOUT || DEFAULT_TIMEOUT_MS);
   const timeout = Number.isFinite(rawTimeout) && rawTimeout > 0 ? rawTimeout : DEFAULT_TIMEOUT_MS;
+  const dwsArgs = [...args];
+  if (confirmed) dwsArgs.push("--yes");
+  dwsArgs.push("--format", "json");
 
   return new Promise((resolve) => {
-    execFile(dwsPath, [...args, "--yes", "--format", "json"], {
+    execFile(dwsPath, dwsArgs, {
       timeout,
       maxBuffer: 10 * 1024 * 1024,
     }, (error, stdout) => {
@@ -48,11 +51,14 @@ export async function runDws(ctx, args, { write = false } = {}) {
 
       const status = data && typeof data === "object" ? String(data.status || "").toLowerCase() : "";
       const errorEnvelope = data?.error && typeof data.error === "object" ? data.error : {};
+      const errorCategory = String(errorEnvelope.category || "").toLowerCase();
       const businessFailed = data && typeof data === "object"
         && (
           data.success === false
           || status === "error"
           || status === "failed"
+          || errorCategory === "validation"
+          || errorCategory === "business"
           || String(errorEnvelope.reason || "").toLowerCase() === "business_error"
         );
       if (businessFailed) {
