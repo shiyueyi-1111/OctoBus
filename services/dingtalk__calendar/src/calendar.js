@@ -211,8 +211,14 @@ export function createCalendarHandlers({ runDws }) {
 
     "dingtalk.calendar.v1.CalendarService/CreateEvent": async (ctx) => {
       const request = ctx.request ?? {};
-      const profile = validateProfile(request.profile);
-      if (profile.success === false) return profile;
+      const rawProfile = request.profile;
+      const hasProfile = rawProfile !== undefined && rawProfile !== null && rawProfile !== "";
+      let profile = "";
+      if (hasProfile) {
+        const validation = validateProfile(rawProfile);
+        if (validation.success === false) return validation;
+        profile = validation.profile;
+      }
       if (request.location) {
         return {
           success: false,
@@ -234,7 +240,7 @@ export function createCalendarHandlers({ runDws }) {
       }
       if (request.description) args.push("--desc", request.description);
       if (request.timezone) args.push("--timezone", request.timezone);
-      args.push("--profile", profile.profile);
+      if (profile) args.push("--profile", profile);
 
       const response = await runDws(ctx, args, { write: true });
       if (!response.success) return { success: false, eventId: "", error: response.error };

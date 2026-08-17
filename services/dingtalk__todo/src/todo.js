@@ -94,8 +94,14 @@ export function createTodoHandlers({ runDws }) {
   return {
     "dingtalk.todo.v1.TodoService/CreateTodo": async (ctx) => {
       const { title, description, dueDate, assigneeId } = ctx.request;
-      const profile = validateProfile(ctx.request?.profile);
-      if (profile.success === false) return profile;
+      const rawProfile = ctx.request?.profile;
+      const hasProfile = rawProfile !== undefined && rawProfile !== null && rawProfile !== "";
+      let profile = "";
+      if (hasProfile) {
+        const validation = validateProfile(rawProfile);
+        if (validation.success === false) return validation;
+        profile = validation.profile;
+      }
       const displayTitle = description
         ? `${title || "Untitled"} (${description})`
         : requireValue(title || "Untitled", "title");
@@ -106,7 +112,7 @@ export function createTodoHandlers({ runDws }) {
         console.warn('[dingtalk-todo] assigneeId not provided and USER_ID not set, using "default"');
       }
       args.push("--executors", executor);
-      args.push("--profile", profile.profile);
+      if (profile) args.push("--profile", profile);
 
       const response = await runDws(ctx, args);
       if (!response.success) return { success: false, todoId: "", error: response.error };

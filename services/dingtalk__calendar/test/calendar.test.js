@@ -36,7 +36,7 @@ test("tracked Calendar proto preserves existing RPCs and adds attendee mutations
   assert.match(proto, /message RemoveEventAttendeesRequest\s*\{[\s\S]*repeated string attendees_to_remove = 4;/);
 });
 
-test("tracked Calendar service exposes all handlers and requires per-request profile", () => {
+test("tracked Calendar service exposes all handlers and validates per-request profiles", () => {
   const source = readRequired(resolve(serviceRoot, "src/calendar.js"), "Calendar handlers");
 
   for (const method of [
@@ -75,9 +75,9 @@ function createHarness(responses = []) {
   return { calls, handlers: createCalendarHandlers({ runDws }) };
 }
 
-test("CreateEvent requires and forwards the current profile before any DWS write", async () => {
-  const missing = createHarness();
-  const rejected = await missing.handlers[
+test("CreateEvent preserves profile-optional compatibility and forwards an explicit profile", async () => {
+  const legacy = createHarness([{ success: true, data: { result: { id: "evt-legacy" } } }]);
+  const created = await legacy.handlers[
     "dingtalk.calendar.v1.CalendarService/CreateEvent"
   ]({
     request: {
@@ -87,8 +87,17 @@ test("CreateEvent requires and forwards the current profile before any DWS write
     },
   });
 
-  assert.equal(rejected.success, false);
-  assert.equal(missing.calls.length, 0);
+  assert.equal(created.success, true);
+  assert.equal(created.eventId, "evt-legacy");
+  assert.deepEqual(legacy.calls, [{
+    args: [
+      "calendar", "event", "create",
+      "--title", "机器人测试复盘",
+      "--start", "2026-08-18T14:00:00+08:00",
+      "--end", "2026-08-18T15:00:00+08:00",
+    ],
+    options: { write: true },
+  }]);
 
   const bound = createHarness([{ success: true, data: { result: { id: "evt-created" } } }]);
   await bound.handlers["dingtalk.calendar.v1.CalendarService/CreateEvent"]({
@@ -110,6 +119,32 @@ test("CreateEvent requires and forwards the current profile before any DWS write
     ],
     options: { write: true },
   }]);
+
+  const invalid = createHarness();
+  const rejected = await invalid.handlers["dingtalk.calendar.v1.CalendarService/CreateEvent"]({
+    request: {
+      title: "机器人测试复盘",
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+      profile: "corp-a",
+    },
+  });
+  assert.equal(rejected.success, false);
+  assert.equal(invalid.calls.length, 0);
+
+  const whitespace = createHarness();
+  const whitespaceRejected = await whitespace.handlers[
+    "dingtalk.calendar.v1.CalendarService/CreateEvent"
+  ]({
+    request: {
+      title: "机器人测试复盘",
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+      profile: "   ",
+    },
+  });
+  assert.equal(whitespaceRejected.success, false);
+  assert.equal(whitespace.calls.length, 0);
 });
 
 test("ListEvents and CreateEvent preserve the installed Calendar behavior", async () => {

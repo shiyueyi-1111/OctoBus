@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createTodoHandlers } from "../src/todo.js";
 
-test("CreateTodo requires and forwards the current profile before any DWS write", async () => {
+test("CreateTodo preserves profile-optional compatibility and forwards an explicit profile", async () => {
   const calls = [];
   const handlers = createTodoHandlers({
     runDws: async (_ctx, args) => {
@@ -12,11 +12,15 @@ test("CreateTodo requires and forwards the current profile before any DWS write"
     },
   });
 
-  const rejected = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
+  const created = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
     request: { title: "机器人测试回访", assigneeId: "user-a" },
   });
-  assert.equal(rejected.success, false);
-  assert.equal(calls.length, 0);
+  assert.equal(created.success, true);
+  assert.equal(created.todoId, "todo-created");
+  assert.deepEqual(calls, [[
+    "todo", "task", "create", "--title", "机器人测试回访",
+    "--executors", "user-a",
+  ]]);
 
   await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
     request: {
@@ -25,10 +29,39 @@ test("CreateTodo requires and forwards the current profile before any DWS write"
       profile: "corp-a:user-a",
     },
   });
-  assert.deepEqual(calls, [[
+  assert.deepEqual(calls[1], [
     "todo", "task", "create", "--title", "机器人测试回访",
     "--executors", "user-a", "--profile", "corp-a:user-a",
-  ]]);
+  ]);
+
+  const rejected = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
+    request: {
+      title: "机器人测试回访",
+      assigneeId: "user-a",
+      profile: "corp-a",
+    },
+  });
+  assert.equal(rejected.success, false);
+  assert.equal(calls.length, 2);
+
+  const whitespaceCalls = [];
+  const whitespaceHandlers = createTodoHandlers({
+    runDws: async (_ctx, args) => {
+      whitespaceCalls.push(args);
+      return { success: true, data: { result: [{ id: "todo-created" }] } };
+    },
+  });
+  const whitespaceRejected = await whitespaceHandlers[
+    "dingtalk.todo.v1.TodoService/CreateTodo"
+  ]({
+    request: {
+      title: "机器人测试回访",
+      assigneeId: "user-a",
+      profile: "   ",
+    },
+  });
+  assert.equal(whitespaceRejected.success, false);
+  assert.equal(whitespaceCalls.length, 0);
 });
 
 
