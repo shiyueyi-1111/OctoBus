@@ -3,6 +3,28 @@ import assert from "node:assert/strict";
 
 import { createTodoHandlers } from "../src/todo.js";
 
+test("CreateTodo returns the task ID from the current object-shaped DWS response", async () => {
+  const handlers = createTodoHandlers({
+    runDws: async () => ({
+      success: true,
+      data: {
+        success: true,
+        result: {
+          subject: "机器人测试客户回访",
+          taskId: "todo-current-created-1",
+        },
+      },
+    }),
+  });
+
+  const created = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
+    request: { title: "机器人测试客户回访", assigneeId: "user-a" },
+  });
+
+  assert.equal(created.success, true);
+  assert.equal(created.todoId, "todo-current-created-1");
+});
+
 test("CreateTodo preserves profile-optional compatibility and forwards an explicit profile", async () => {
   const calls = [];
   const handlers = createTodoHandlers({

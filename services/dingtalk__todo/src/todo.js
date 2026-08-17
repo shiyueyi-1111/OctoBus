@@ -118,9 +118,8 @@ export function createTodoHandlers({ runDws }) {
       if (!response.success) return { success: false, todoId: "", error: response.error };
 
       const result = response.data?.result || response.data;
-      const todoId = Array.isArray(result) && result.length > 0
-        ? (result[0].id || result[0].taskId || "")
-        : "";
+      const createdTodo = Array.isArray(result) ? result[0] : result;
+      const todoId = createdTodo?.id || createdTodo?.taskId || "";
       return { success: true, todoId, error: "" };
     },
 
