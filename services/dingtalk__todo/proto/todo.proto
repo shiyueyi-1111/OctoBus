@@ -15,6 +15,7 @@ message CreateTodoRequest {
   string description = 2;
   string due_date = 3;      // ISO 时间（可选）
   string assignee_id = 4;   // 钉钉 userId（默认自己）
+  string profile = 5;       // Stable corpId:userId selector
 }
 
 message CreateTodoResponse {

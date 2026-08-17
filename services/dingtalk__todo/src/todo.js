@@ -18,6 +18,18 @@ function todoDetailPayload(response) {
   return result?.todoDetailModel ?? result?.todo ?? result?.task ?? result;
 }
 
+function normalizeDueDate(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const numeric = typeof value === "number"
+    ? value
+    : (typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN);
+  if (Number.isFinite(numeric)) {
+    const instant = new Date(numeric);
+    if (Number.isFinite(instant.getTime())) return instant.toISOString();
+  }
+  return String(value);
+}
+
 function normalizeTodo(value) {
   const todo = value?.todo ?? value ?? {};
   const dueDate = todo.dueTime ?? todo.dueDate ?? "";
@@ -26,7 +38,7 @@ function normalizeTodo(value) {
     title: String(todo.subject ?? todo.title ?? ""),
     description: String(todo.description ?? ""),
     isDone: todo.done === true || todo.isDone === true,
-    dueDate: String(dueDate ?? ""),
+    dueDate: normalizeDueDate(dueDate),
     createdAt: String(todo.createdTime ?? todo.createdAt ?? ""),
     priority: Number(todo.priority ?? 0),
   };
@@ -52,15 +64,27 @@ function upstreamFailure(response) {
   };
 }
 
-function validateIdentity(request) {
+function validateProfile(value) {
   try {
-    const todoId = requireValue(request?.todoId, "todo_id");
-    const profile = requireValue(request?.profile, "profile");
+    const profile = requireValue(value, "profile");
     const parts = profile.split(":");
     if (parts.length !== 2 || parts.some((part) => part.trim() === "" || /\s/.test(part))) {
       throw new Error("profile must use corpId:userId format");
     }
-    return { todoId, profile };
+    return { profile };
+  } catch (error) {
+    return validationFailure(error.message);
+  }
+}
+
+function validateIdentity(request) {
+  const profile = validateProfile(request?.profile);
+  if (profile.success === false) return profile;
+  try {
+    return {
+      todoId: requireValue(request?.todoId, "todo_id"),
+      profile: profile.profile,
+    };
   } catch (error) {
     return validationFailure(error.message);
   }
@@ -70,6 +94,8 @@ export function createTodoHandlers({ runDws }) {
   return {
     "dingtalk.todo.v1.TodoService/CreateTodo": async (ctx) => {
       const { title, description, dueDate, assigneeId } = ctx.request;
+      const profile = validateProfile(ctx.request?.profile);
+      if (profile.success === false) return profile;
       const displayTitle = description
         ? `${title || "Untitled"} (${description})`
         : requireValue(title || "Untitled", "title");
@@ -80,6 +106,7 @@ export function createTodoHandlers({ runDws }) {
         console.warn('[dingtalk-todo] assigneeId not provided and USER_ID not set, using "default"');
       }
       args.push("--executors", executor);
+      args.push("--profile", profile.profile);
 
       const response = await runDws(ctx, args);
       if (!response.success) return { success: false, todoId: "", error: response.error };
@@ -143,7 +170,8 @@ export function createTodoHandlers({ runDws }) {
           excludedWithoutDueAt += 1;
           return [];
         }
-        const due = typeof dueDate === "number" ? dueDate : Date.parse(dueDate);
+        const normalizedDueDate = normalizeDueDate(dueDate);
+        const due = Date.parse(normalizedDueDate);
         if (hasRange && (!Number.isFinite(due) || due < start || due >= end)) {
           if (!Number.isFinite(due)) excludedWithoutDueAt += 1;
           return [];
@@ -153,7 +181,7 @@ export function createTodoHandlers({ runDws }) {
           title: item.subject || item.title || "",
           description: item.description || "",
           isDone: item.done === true || item.isDone === true,
-          dueDate: String(dueDate || ""),
+          dueDate: normalizedDueDate,
           createdAt: String(item.createdTime || item.createdAt || ""),
         }];
       });

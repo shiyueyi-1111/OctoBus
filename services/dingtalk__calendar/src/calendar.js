@@ -20,6 +20,12 @@ function normalizeEvent(value) {
       ))
       : [],
     status: String(event.status ?? ""),
+    rooms: Array.isArray(event.meetingRooms)
+      ? event.meetingRooms
+        .map(normalizeRoom)
+        .filter((room) => room.roomId !== "" || room.name !== "")
+      : [],
+    roomsObserved: Array.isArray(event.meetingRooms),
   };
 }
 
@@ -205,6 +211,8 @@ export function createCalendarHandlers({ runDws }) {
 
     "dingtalk.calendar.v1.CalendarService/CreateEvent": async (ctx) => {
       const request = ctx.request ?? {};
+      const profile = validateProfile(request.profile);
+      if (profile.success === false) return profile;
       if (request.location) {
         return {
           success: false,
@@ -226,6 +234,7 @@ export function createCalendarHandlers({ runDws }) {
       }
       if (request.description) args.push("--desc", request.description);
       if (request.timezone) args.push("--timezone", request.timezone);
+      args.push("--profile", profile.profile);
 
       const response = await runDws(ctx, args, { write: true });
       if (!response.success) return { success: false, eventId: "", error: response.error };

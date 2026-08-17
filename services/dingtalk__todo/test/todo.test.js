@@ -3,6 +3,34 @@ import assert from "node:assert/strict";
 
 import { createTodoHandlers } from "../src/todo.js";
 
+test("CreateTodo requires and forwards the current profile before any DWS write", async () => {
+  const calls = [];
+  const handlers = createTodoHandlers({
+    runDws: async (_ctx, args) => {
+      calls.push(args);
+      return { success: true, data: { result: [{ id: "todo-created" }] } };
+    },
+  });
+
+  const rejected = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
+    request: { title: "机器人测试回访", assigneeId: "user-a" },
+  });
+  assert.equal(rejected.success, false);
+  assert.equal(calls.length, 0);
+
+  await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
+    request: {
+      title: "机器人测试回访",
+      assigneeId: "user-a",
+      profile: "corp-a:user-a",
+    },
+  });
+  assert.deepEqual(calls, [[
+    "todo", "task", "create", "--title", "机器人测试回访",
+    "--executors", "user-a", "--profile", "corp-a:user-a",
+  ]]);
+});
+
 
 test("ListTodos filters a half-open range and reports completeness", async () => {
   const calls = [];
@@ -141,7 +169,7 @@ test("ListTodos normalizes the current dws todoCards response", async () => {
     title: "机器人测试客户回访",
     description: "",
     isDone: false,
-    dueDate: "1787056800000",
+    dueDate: "2026-08-18T12:40:00.000Z",
     createdAt: "1786970400000",
   }]);
 });
@@ -165,7 +193,11 @@ test("CreateTodo and MarkDone preserve the installed package behavior", async ()
   const handlers = createTodoHandlers({ runDws });
 
   const created = await handlers["dingtalk.todo.v1.TodoService/CreateTodo"]({
-    request: { title: "客户回访", assigneeId: "cheng.shi" },
+    request: {
+      title: "客户回访",
+      assigneeId: "cheng.shi",
+      profile: "corp-a:user-a",
+    },
   });
   const completed = await handlers["dingtalk.todo.v1.TodoService/MarkDone"]({
     request: { keyword: "回访" },
@@ -251,7 +283,29 @@ test("GetTodo unwraps the current dws todoDetailModel response", async () => {
   assert.equal(result.success, true);
   assert.equal(result.todo.todoId, "todo-current-1");
   assert.equal(result.todo.title, "机器人测试客户回访");
+  assert.equal(result.todo.dueDate, "2026-08-18T12:40:00.000Z");
   assert.equal(result.todo.priority, 30);
+});
+
+test("GetTodo normalizes a numeric-string dueTime to an absolute RFC3339 instant", async () => {
+  const harness = createHarness([{
+    success: true,
+    data: {
+      result: {
+        todoDetailModel: {
+          taskId: "todo-current-2",
+          subject: "机器人测试客户回访",
+          dueTime: "1787056800000",
+        },
+      },
+    },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/GetTodo"
+  ]({ request: { todoId: "todo-current-2", profile: "corp-a:user-a" } });
+
+  assert.equal(result.todo.dueDate, "2026-08-18T12:40:00.000Z");
 });
 
 

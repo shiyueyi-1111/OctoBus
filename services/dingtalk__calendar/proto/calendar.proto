@@ -31,6 +31,8 @@ message CalendarEvent {
   string location = 7;
   repeated string attendees = 8;
   string status = 9;
+  repeated MeetingRoom rooms = 10;
+  bool rooms_observed = 11;
 }
 
 message ListEventsResponse {
@@ -48,6 +50,7 @@ message CreateEventRequest {
   string description = 6;
   string timezone = 7;
   repeated string open_dingtalk_ids = 8;
+  string profile = 9;
 }
 
 message CreateEventResponse {

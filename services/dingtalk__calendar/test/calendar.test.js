@@ -25,6 +25,7 @@ test("tracked Calendar proto preserves existing RPCs and adds attendee mutations
   }
   assert.match(proto, /message CalendarEvent\s*\{[\s\S]*string id = 1;/);
   assert.match(proto, /string status = 9;/);
+  assert.match(proto, /bool rooms_observed = 11;/);
   assert.match(proto, /message UpdateEventRequest\s*\{[\s\S]*optional string title = 4;/);
   assert.match(proto, /optional string start = 5;/);
   assert.match(proto, /optional string end = 6;/);
@@ -74,6 +75,43 @@ function createHarness(responses = []) {
   return { calls, handlers: createCalendarHandlers({ runDws }) };
 }
 
+test("CreateEvent requires and forwards the current profile before any DWS write", async () => {
+  const missing = createHarness();
+  const rejected = await missing.handlers[
+    "dingtalk.calendar.v1.CalendarService/CreateEvent"
+  ]({
+    request: {
+      title: "机器人测试复盘",
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+    },
+  });
+
+  assert.equal(rejected.success, false);
+  assert.equal(missing.calls.length, 0);
+
+  const bound = createHarness([{ success: true, data: { result: { id: "evt-created" } } }]);
+  await bound.handlers["dingtalk.calendar.v1.CalendarService/CreateEvent"]({
+    request: {
+      title: "机器人测试复盘",
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+      profile: "corp-a:user-a",
+    },
+  });
+
+  assert.deepEqual(bound.calls, [{
+    args: [
+      "calendar", "event", "create",
+      "--title", "机器人测试复盘",
+      "--start", "2026-08-18T14:00:00+08:00",
+      "--end", "2026-08-18T15:00:00+08:00",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: true },
+  }]);
+});
+
 test("ListEvents and CreateEvent preserve the installed Calendar behavior", async () => {
   const { calls, handlers } = createHarness([
     {
@@ -103,6 +141,7 @@ test("ListEvents and CreateEvent preserve the installed Calendar behavior", asyn
       end: "2026-08-09T10:00:00+08:00",
       description: "准备材料",
       timezone: "Asia/Shanghai",
+      profile: "corp-a:user-a",
     },
   });
 
@@ -125,6 +164,7 @@ test("ListEvents and CreateEvent preserve the installed Calendar behavior", asyn
       "--end", "2026-08-09T10:00:00+08:00",
       "--desc", "准备材料",
       "--timezone", "Asia/Shanghai",
+      "--profile", "corp-a:user-a",
     ],
     options: { write: true },
   });
@@ -160,6 +200,8 @@ test("GetEvent passes stable IDs and profile and normalizes CalendarEvent", asyn
     location: "",
     attendees: [],
     status: "cancelled",
+    rooms: [],
+    roomsObserved: false,
   });
   assert.deepEqual(calls, [{
     args: [
@@ -190,6 +232,65 @@ test("GetEvent preserves stable attendee IDs for mutation readback", async () =>
   });
 
   assert.deepEqual(result.event.attendees, ["staff-1", "staff-2", "仅名称兼容"]);
+});
+
+test("GetEvent exposes the real meetingRooms association for exact-ID readback", async () => {
+  const { handlers } = createHarness([{
+    success: true,
+    data: {
+      result: {
+        id: "evt-get",
+        meetingRooms: [
+          {
+            responseStatus: "accepted",
+            roomId: "room-17",
+            roomName: "机器人测试会议室",
+          },
+          {
+            responseStatus: "accepted",
+            roomId: null,
+            roomName: "仅名称会议室",
+          },
+        ],
+      },
+    },
+  }]);
+
+  const result = await handlers["dingtalk.calendar.v1.CalendarService/GetEvent"]({
+    request: { eventId: "evt-get", calendarId: "primary", profile: "corp-a:user-a" },
+  });
+
+  assert.deepEqual(result.event.rooms, [
+    {
+      roomId: "room-17",
+      name: "机器人测试会议室",
+      groupId: "",
+      customApprovalProcess: false,
+      supportRecurring: false,
+    },
+    {
+      roomId: "",
+      name: "仅名称会议室",
+      groupId: "",
+      customApprovalProcess: false,
+      supportRecurring: false,
+    },
+  ]);
+  assert.equal(result.event.roomsObserved, true);
+});
+
+test("GetEvent distinguishes an observed empty meetingRooms array from a missing field", async () => {
+  const { handlers } = createHarness([{
+    success: true,
+    data: { result: { id: "evt-empty-rooms", meetingRooms: [] } },
+  }]);
+
+  const result = await handlers["dingtalk.calendar.v1.CalendarService/GetEvent"]({
+    request: { eventId: "evt-empty-rooms", calendarId: "primary", profile: "corp-a:user-a" },
+  });
+
+  assert.deepEqual(result.event.rooms, []);
+  assert.equal(result.event.roomsObserved, true);
 });
 
 test("ListEvents passes an explicit profile without changing profile-optional compatibility", async () => {
