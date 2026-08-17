@@ -5,6 +5,9 @@ service TodoService {
   rpc CreateTodo(CreateTodoRequest) returns (CreateTodoResponse);
   rpc ListTodos(ListTodosRequest) returns (ListTodosResponse);
   rpc MarkDone(MarkDoneRequest) returns (MarkDoneResponse);
+  rpc GetTodo(GetTodoRequest) returns (GetTodoResponse);
+  rpc UpdateTodo(UpdateTodoRequest) returns (TodoMutationResponse);
+  rpc DeleteTodo(DeleteTodoRequest) returns (TodoMutationResponse);
 }
 
 message CreateTodoRequest {
@@ -35,6 +38,7 @@ message TodoItem {
   bool is_done = 4;
   string due_date = 5;
   string created_at = 6;
+  int32 priority = 7;
 }
 
 message ListTodosResponse {
@@ -56,4 +60,37 @@ message MarkDoneResponse {
   bool success = 1;
   int32 matched_count = 2;
   string error = 3;
+}
+
+message GetTodoRequest {
+  string todo_id = 1;
+  string profile = 2;
+}
+
+message GetTodoResponse {
+  bool success = 1;
+  TodoItem todo = 2;
+  string error = 3;
+  string error_code = 4;
+}
+
+message UpdateTodoRequest {
+  string todo_id = 1;
+  string profile = 2;
+  optional string title = 3;
+  optional string due_date = 4;
+  optional int32 priority = 5;
+}
+
+message DeleteTodoRequest {
+  string todo_id = 1;
+  string profile = 2;
+}
+
+message TodoMutationResponse {
+  bool success = 1;
+  string todo_id = 2;
+  string error = 3;
+  string error_code = 4;
+  bool outcome_uncertain = 5;
 }

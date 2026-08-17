@@ -40,3 +40,30 @@ test("runDws uses configured dwsPath and passes arguments without shell wrapping
     "json",
   ]);
 });
+
+test("runDws reports a timed-out write as uncertain without replay", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "dingtalk-todo-dws-timeout-"));
+  const countPath = join(dir, "count.txt");
+  const fakeDws = join(dir, "fake-dws.js");
+  await writeFile(
+    fakeDws,
+    [
+      "#!/usr/bin/env node",
+      "const fs = require('node:fs');",
+      `fs.appendFileSync(${JSON.stringify(countPath)}, "1");`,
+      "setTimeout(() => {}, 10000);",
+    ].join("\n"),
+  );
+  await chmod(fakeDws, 0o755);
+
+  const result = await runDws(
+    { config: { dwsPath: fakeDws, timeoutMs: 2000 } },
+    ["todo", "task", "delete", "--task-id", "todo-17"],
+    { write: true },
+  );
+
+  assert.equal(result.success, false);
+  assert.equal(result.errorCode, "DWS_TIMEOUT");
+  assert.equal(result.outcomeUncertain, true);
+  assert.equal(await readFile(countPath, "utf8"), "1");
+});

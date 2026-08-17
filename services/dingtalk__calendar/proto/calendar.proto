@@ -9,6 +9,10 @@ service CalendarService {
   rpc DeleteEvent(DeleteEventRequest) returns (DeleteEventResponse);
   rpc AddEventAttendees(AddEventAttendeesRequest) returns (AttendeeMutationResponse);
   rpc RemoveEventAttendees(RemoveEventAttendeesRequest) returns (AttendeeMutationResponse);
+  rpc SearchRooms(SearchRoomsRequest) returns (SearchRoomsResponse);
+  rpc QueryRoomBusy(QueryRoomBusyRequest) returns (QueryRoomBusyResponse);
+  rpc AddEventRooms(EventRoomsRequest) returns (RoomMutationResponse);
+  rpc RemoveEventRooms(EventRoomsRequest) returns (RoomMutationResponse);
 }
 
 message ListEventsRequest {
@@ -113,6 +117,58 @@ message RemoveEventAttendeesRequest {
 }
 
 message AttendeeMutationResponse {
+  bool success = 1;
+  string event_id = 2;
+  string error = 3;
+  string error_code = 4;
+  bool outcome_uncertain = 5;
+}
+
+message SearchRoomsRequest {
+  string start = 1;
+  string end = 2;
+  string profile = 3;
+  string room_name = 4;
+  string group_id = 5;
+}
+
+message MeetingRoom {
+  string room_id = 1;
+  string name = 2;
+  string group_id = 3;
+  bool custom_approval_process = 4;
+  bool support_recurring = 5;
+}
+
+message SearchRoomsResponse {
+  bool success = 1;
+  repeated MeetingRoom rooms = 2;
+  string error = 3;
+  string error_code = 4;
+}
+
+message QueryRoomBusyRequest {
+  string start = 1;
+  string end = 2;
+  string profile = 3;
+  repeated string room_ids = 4;
+}
+
+message QueryRoomBusyResponse {
+  bool success = 1;
+  string raw_json = 2;
+  string error = 3;
+  string error_code = 4;
+}
+
+message EventRoomsRequest {
+  string event_id = 1;
+  string calendar_id = 2;
+  string profile = 3;
+  repeated string room_ids = 4;
+}
+
+message RoomMutationResponse {
   bool success = 1;
   string event_id = 2;
   string error = 3;

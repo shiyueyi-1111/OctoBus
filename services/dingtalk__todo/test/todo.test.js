@@ -123,3 +123,141 @@ test("CreateTodo and MarkDone preserve the installed package behavior", async ()
     "todo", "task", "update", "--task-id", "todo-created", "--done", "true",
   ]);
 });
+
+
+function createHarness(responses = []) {
+  const calls = [];
+  const runDws = async (_ctx, args, options) => {
+    calls.push({ args, options });
+    return responses.shift() ?? { success: true, data: {} };
+  };
+  return { calls, handlers: createTodoHandlers({ runDws }) };
+}
+
+
+test("GetTodo maps stable identity and normalizes the task", async () => {
+  const harness = createHarness([{
+    success: true,
+    data: {
+      result: {
+        id: "todo-17",
+        subject: "机器人测试客户回访",
+        done: false,
+        dueTime: "2026-08-18T18:00:00+08:00",
+        priority: 30,
+      },
+    },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/GetTodo"
+  ]({ request: { todoId: "todo-17", profile: "corp-a:user-a" } });
+
+  assert.deepEqual(result.todo, {
+    todoId: "todo-17",
+    title: "机器人测试客户回访",
+    description: "",
+    isDone: false,
+    dueDate: "2026-08-18T18:00:00+08:00",
+    createdAt: "",
+    priority: 30,
+  });
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "todo", "task", "get", "--task-id", "todo-17",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: false },
+  }]);
+});
+
+
+test("UpdateTodo maps only requested fields and writes exactly once", async () => {
+  const harness = createHarness([{ success: true, data: { result: { id: "todo-17" } } }]);
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/UpdateTodo"
+  ]({
+    request: {
+      todoId: "todo-17",
+      profile: "corp-a:user-a",
+      title: "机器人测试重点客户回访",
+      priority: 40,
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.todoId, "todo-17");
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "todo", "task", "update", "--task-id", "todo-17",
+      "--title", "机器人测试重点客户回访",
+      "--priority", "40",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: true },
+  }]);
+});
+
+
+test("DeleteTodo uses the stable task ID and writes exactly once", async () => {
+  const harness = createHarness([{ success: true, data: { result: { id: "todo-17" } } }]);
+
+  const result = await harness.handlers[
+    "dingtalk.todo.v1.TodoService/DeleteTodo"
+  ]({ request: { todoId: "todo-17", profile: "corp-a:user-a" } });
+
+  assert.equal(result.success, true);
+  assert.equal(result.todoId, "todo-17");
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "todo", "task", "delete", "--task-id", "todo-17",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: true },
+  }]);
+});
+
+
+test("todo mutations reject missing identity or patch before DWS", async () => {
+  for (const [method, request] of [
+    ["GetTodo", { todoId: "", profile: "corp-a:user-a" }],
+    ["UpdateTodo", { todoId: "todo-17", profile: "corp-a:user-a" }],
+    ["UpdateTodo", { todoId: "todo-17", profile: "", title: "新标题" }],
+    ["DeleteTodo", { todoId: "todo-17", profile: "corp-a" }],
+  ]) {
+    const harness = createHarness();
+    const result = await harness.handlers[
+      `dingtalk.todo.v1.TodoService/${method}`
+    ]({ request });
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "INVALID_ARGUMENT");
+    assert.equal(harness.calls.length, 0);
+  }
+});
+
+
+test("todo write transport uncertainty is returned without replay", async () => {
+  for (const method of ["UpdateTodo", "DeleteTodo"]) {
+    const harness = createHarness([{
+      success: false,
+      error: "DingTalk todo write result is uncertain",
+      errorCode: "DWS_TIMEOUT",
+      outcomeUncertain: true,
+    }]);
+    const request = {
+      todoId: "todo-17",
+      profile: "corp-a:user-a",
+      ...(method === "UpdateTodo" ? { title: "新标题" } : {}),
+    };
+
+    const result = await harness.handlers[
+      `dingtalk.todo.v1.TodoService/${method}`
+    ]({ request });
+
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "DWS_TIMEOUT");
+    assert.equal(result.outcomeUncertain, true);
+    assert.equal(harness.calls.length, 1);
+  }
+});

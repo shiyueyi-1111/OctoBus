@@ -15,7 +15,19 @@ export function addFlag(args, name, value) {
   return args;
 }
 
-export async function runDws(ctx, args) {
+function failure(errorCode, { write = false, business = false } = {}) {
+  return {
+    success: false,
+    data: null,
+    error: write && !business
+      ? "DingTalk todo write result is uncertain"
+      : "DingTalk todo operation failed",
+    errorCode,
+    outcomeUncertain: write && !business,
+  };
+}
+
+export async function runDws(ctx, args, { write = false } = {}) {
   const config = ctx.config ?? {};
   const dwsPath = config.dwsPath || process.env.DWS_PATH || "dws";
   const rawTimeout = Number(config.timeoutMs || process.env.DWS_TIMEOUT || DEFAULT_TIMEOUT_MS);
@@ -25,7 +37,7 @@ export async function runDws(ctx, args) {
     execFile(dwsPath, [...args, "--yes", "--format", "json"], {
       timeout,
       maxBuffer: 10 * 1024 * 1024,
-    }, (error, stdout, stderr) => {
+    }, (error, stdout) => {
       const raw = String(stdout || "").trim();
       let data = null;
       try {
@@ -35,14 +47,28 @@ export async function runDws(ctx, args) {
       }
 
       const status = data && typeof data === "object" ? String(data.status || "").toLowerCase() : "";
-      const businessFailed = data && typeof data === "object" && data.success === false;
-      if (error || businessFailed || status === "error" || status === "failed") {
-        const message = data?.summary || data?.message || data?.error?.message || data?.error || String(stderr || error?.message || "dws command failed").trim();
-        resolve({ success: false, data, error: typeof message === "string" ? message : JSON.stringify(message) });
+      const businessFailed = data && typeof data === "object"
+        && (data.success === false || status === "error" || status === "failed");
+      if (businessFailed) {
+        const nestedError = data?.error && typeof data.error === "object" ? data.error : {};
+        const rawCode = String(data?.errorCode ?? data?.code ?? nestedError.code ?? "").toUpperCase();
+        resolve(failure(rawCode === "NOT_FOUND" ? rawCode : "DWS_BUSINESS_ERROR", {
+          write,
+          business: true,
+        }));
+        return;
+      }
+      if (error) {
+        const timedOut = error.killed === true || error.signal === "SIGTERM" || error.code === "ETIMEDOUT";
+        resolve(failure(timedOut ? "DWS_TIMEOUT" : "DWS_TRANSPORT_ERROR", { write }));
+        return;
+      }
+      if (data === null || typeof data === "string") {
+        resolve(failure("DWS_INVALID_RESPONSE", { write }));
         return;
       }
 
-      resolve({ success: true, data, error: "" });
+      resolve({ success: true, data, error: "", errorCode: "", outcomeUncertain: false });
     });
   });
 }

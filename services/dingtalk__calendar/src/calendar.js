@@ -68,6 +68,80 @@ function validateIdentity(request) {
   }
 }
 
+function validateProfile(value) {
+  try {
+    const profile = requireValue(value, "profile");
+    const parts = profile.split(":");
+    if (parts.length !== 2 || parts.some((part) => part.trim() === "" || /\s/.test(part))) {
+      throw new Error("profile must use corpId:userId format");
+    }
+    return { profile };
+  } catch (error) {
+    return validationFailure(error.message);
+  }
+}
+
+function validateTimeWindow(start, end, { required = false } = {}) {
+  const hasStart = String(start ?? "").trim() !== "";
+  const hasEnd = String(end ?? "").trim() !== "";
+  if ((required && (!hasStart || !hasEnd)) || hasStart !== hasEnd) {
+    return validationFailure("start and end must be provided together");
+  }
+  if (hasStart) {
+    const startTime = Date.parse(start);
+    const endTime = Date.parse(end);
+    if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
+      return validationFailure("start and end must be valid and start must be before end");
+    }
+  }
+  return { start: hasStart ? String(start) : "", end: hasEnd ? String(end) : "" };
+}
+
+function normalizedIds(values, field) {
+  const ids = Array.isArray(values) ? values.map((value) => String(value).trim()) : [];
+  if (ids.length === 0 || ids.some((value) => value === "")) {
+    return validationFailure(`${field} must contain stable IDs`);
+  }
+  return { ids };
+}
+
+function normalizeRoom(value) {
+  const room = value?.room ?? value ?? {};
+  return {
+    roomId: String(room.roomId ?? room.room_id ?? room.id ?? ""),
+    name: String(room.name ?? room.roomName ?? room.room_name ?? ""),
+    groupId: String(room.groupId ?? room.group_id ?? ""),
+    customApprovalProcess: room.customApprovalProcess === true || room.custom_approval_process === true,
+    supportRecurring: room.supportRecurring === true || room.support_recurring === true,
+  };
+}
+
+async function mutateRooms(ctx, runDws, command) {
+  const identity = validateIdentity(ctx.request);
+  if (identity.success === false) return identity;
+  const roomIds = normalizedIds(ctx.request?.roomIds, "room_ids");
+  if (roomIds.success === false) return roomIds;
+  const response = await runDws(
+    ctx,
+    [
+      "calendar", "room", command,
+      "--event", identity.eventId,
+      "--rooms", roomIds.ids.join(","),
+      "--calendar-id", identity.calendarId,
+      "--profile", identity.profile,
+    ],
+    { write: true },
+  );
+  if (!response.success) return upstreamFailure(response);
+  return {
+    success: true,
+    eventId: identity.eventId,
+    error: "",
+    errorCode: "",
+    outcomeUncertain: false,
+  };
+}
+
 function addPresentFlag(args, request, key, flag) {
   if (isPresent(request, key)) args.push(flag, String(request[key]));
 }
@@ -254,5 +328,64 @@ export function createCalendarHandlers({ runDws }) {
         requestField: "attendeesToRemove",
         command: "delete",
       }),
+
+    "dingtalk.calendar.v1.CalendarService/SearchRooms": async (ctx) => {
+      const request = ctx.request ?? {};
+      const profile = validateProfile(request.profile);
+      if (profile.success === false) return { ...profile, rooms: [] };
+      const window = validateTimeWindow(request.start, request.end);
+      if (window.success === false) return { ...window, rooms: [] };
+      const args = ["calendar", "room", "search"];
+      if (window.start) args.push("--start", window.start, "--end", window.end);
+      if (String(request.roomName ?? "").trim()) {
+        args.push("--room-name", String(request.roomName).trim());
+      }
+      if (String(request.groupId ?? "").trim()) {
+        args.push("--group-id", String(request.groupId).trim());
+      }
+      args.push("--profile", profile.profile);
+      const response = await runDws(ctx, args, { write: false });
+      if (!response.success) return { ...upstreamFailure(response), rooms: [] };
+      const result = resultPayload(response);
+      const rawRooms = result?.rooms ?? result?.items ?? result ?? [];
+      const rooms = Array.isArray(rawRooms)
+        ? rawRooms.map(normalizeRoom).filter((room) => room.roomId !== "")
+        : [];
+      return { success: true, rooms, error: "", errorCode: "" };
+    },
+
+    "dingtalk.calendar.v1.CalendarService/QueryRoomBusy": async (ctx) => {
+      const request = ctx.request ?? {};
+      const profile = validateProfile(request.profile);
+      if (profile.success === false) return { ...profile, rawJson: "" };
+      const window = validateTimeWindow(request.start, request.end, { required: true });
+      if (window.success === false) return { ...window, rawJson: "" };
+      const roomIds = normalizedIds(request.roomIds, "room_ids");
+      if (roomIds.success === false) return { ...roomIds, rawJson: "" };
+      const response = await runDws(
+        ctx,
+        [
+          "calendar", "busy", "search",
+          "--rooms", roomIds.ids.join(","),
+          "--start", window.start,
+          "--end", window.end,
+          "--profile", profile.profile,
+        ],
+        { write: false },
+      );
+      if (!response.success) return { ...upstreamFailure(response), rawJson: "" };
+      return {
+        success: true,
+        rawJson: JSON.stringify(resultPayload(response) ?? {}),
+        error: "",
+        errorCode: "",
+      };
+    },
+
+    "dingtalk.calendar.v1.CalendarService/AddEventRooms": async (ctx) =>
+      mutateRooms(ctx, runDws, "add"),
+
+    "dingtalk.calendar.v1.CalendarService/RemoveEventRooms": async (ctx) =>
+      mutateRooms(ctx, runDws, "delete"),
   };
 }

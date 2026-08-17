@@ -416,3 +416,131 @@ test("attendee mutation transport uncertainty is returned without replay", async
     assert.equal(harness.calls.length, 1);
   }
 });
+
+test("SearchRooms maps a stable profile and exact time window to DWS", async () => {
+  const harness = createHarness([{
+    success: true,
+    data: {
+      result: {
+        rooms: [{
+          roomId: "room-17",
+          name: "机器人测试会议室",
+          groupId: "group-1",
+          customApprovalProcess: false,
+          supportRecurring: true,
+        }],
+      },
+    },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.calendar.v1.CalendarService/SearchRooms"
+  ]({
+    request: {
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+      profile: "corp-a:user-a",
+      roomName: "机器人测试",
+      groupId: "group-1",
+    },
+  });
+
+  assert.deepEqual(result.rooms, [{
+    roomId: "room-17",
+    name: "机器人测试会议室",
+    groupId: "group-1",
+    customApprovalProcess: false,
+    supportRecurring: true,
+  }]);
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "calendar", "room", "search",
+      "--start", "2026-08-18T14:00:00+08:00",
+      "--end", "2026-08-18T15:00:00+08:00",
+      "--room-name", "机器人测试",
+      "--group-id", "group-1",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: false },
+  }]);
+});
+
+test("QueryRoomBusy requires room IDs and returns the exact DWS result", async () => {
+  const busyResult = { schedules: [{ eventId: "event-17" }] };
+  const harness = createHarness([{
+    success: true,
+    data: { result: busyResult },
+  }]);
+
+  const result = await harness.handlers[
+    "dingtalk.calendar.v1.CalendarService/QueryRoomBusy"
+  ]({
+    request: {
+      start: "2026-08-18T14:00:00+08:00",
+      end: "2026-08-18T15:00:00+08:00",
+      profile: "corp-a:user-a",
+      roomIds: ["room-17"],
+    },
+  });
+
+  assert.equal(result.rawJson, JSON.stringify(busyResult));
+  assert.deepEqual(harness.calls, [{
+    args: [
+      "calendar", "busy", "search",
+      "--rooms", "room-17",
+      "--start", "2026-08-18T14:00:00+08:00",
+      "--end", "2026-08-18T15:00:00+08:00",
+      "--profile", "corp-a:user-a",
+    ],
+    options: { write: false },
+  }]);
+});
+
+test("room mutations use stable IDs and invoke DWS exactly once", async () => {
+  for (const [method, command] of [
+    ["AddEventRooms", "add"],
+    ["RemoveEventRooms", "delete"],
+  ]) {
+    const harness = createHarness([{ success: true, data: { result: {} } }]);
+    const result = await harness.handlers[
+      `dingtalk.calendar.v1.CalendarService/${method}`
+    ]({
+      request: {
+        eventId: "event-17",
+        calendarId: "primary",
+        profile: "corp-a:user-a",
+        roomIds: ["room-17"],
+      },
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.eventId, "event-17");
+    assert.deepEqual(harness.calls, [{
+      args: [
+        "calendar", "room", command,
+        "--event", "event-17",
+        "--rooms", "room-17",
+        "--calendar-id", "primary",
+        "--profile", "corp-a:user-a",
+      ],
+      options: { write: true },
+    }]);
+  }
+});
+
+test("room operations reject incomplete stable context before DWS", async () => {
+  for (const [method, request] of [
+    ["SearchRooms", { start: "2026-08-18T14:00:00+08:00", profile: "corp-a:user-a" }],
+    ["QueryRoomBusy", { start: "2026-08-18T14:00:00+08:00", end: "2026-08-18T15:00:00+08:00", profile: "corp-a:user-a", roomIds: [] }],
+    ["AddEventRooms", { eventId: "event-17", calendarId: "primary", profile: "", roomIds: ["room-17"] }],
+    ["RemoveEventRooms", { eventId: "event-17", calendarId: "primary", profile: "corp-a:user-a", roomIds: [] }],
+  ]) {
+    const harness = createHarness();
+    const result = await harness.handlers[
+      `dingtalk.calendar.v1.CalendarService/${method}`
+    ]({ request });
+    assert.equal(result.success, false);
+    assert.equal(result.errorCode, "INVALID_ARGUMENT");
+    assert.equal(harness.calls.length, 0);
+  }
+});
