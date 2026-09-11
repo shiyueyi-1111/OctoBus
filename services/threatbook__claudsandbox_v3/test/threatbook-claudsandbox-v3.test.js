@@ -3,8 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { GrpcError, grpcStatus } from '@chaitin-ai/octobus-sdk';
+import { GrpcError, grpcStatus, loadServicePackage } from '@chaitin-ai/octobus-sdk';
 
 import {
   METHOD_GET_FILE_REPORT_FULL,
@@ -71,6 +72,11 @@ const expectGrpcError = async (fn, legacyCode, checker = () => {}) => {
 
 const parseStructuredError = (err) => JSON.parse(err.message);
 
+const servicePackage = loadServicePackage(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
+const threatBookService = servicePackage.grpcServices.find(
+  (item) => item.descriptor.typeName === 'ThreatBook_ClaudSandbox_V3.ThreatBook_ClaudSandbox_V3',
+);
+
 test.afterEach(() => {
   globalThis.fetch = originalFetch;
 });
@@ -116,11 +122,6 @@ test('validates required config, secret, upload input, resource, and report opti
     () => handlers[METHOD_GET_FILE_REPORT_FULL]({ sandbox_type: 'win7_sp1_enx86_office2013' }, buildCtx()),
     'INVALID_ARGUMENT',
     (err) => assert.match(err.message, /resource is required/),
-  );
-  await expectGrpcError(
-    () => handlers[METHOD_GET_FILE_REPORT_FULL]({ resource: 'a'.repeat(64) }, buildCtx()),
-    'INVALID_ARGUMENT',
-    (err) => assert.match(err.message, /sandbox_type is required/),
   );
 });
 
@@ -184,6 +185,24 @@ test('UploadFile supports file_path input', async () => {
   assert.equal(result.sha256, 'b'.repeat(64));
 });
 
+test('UploadFile treats proto default run_time 0 as omitted', async () => {
+  let captured;
+  setFetch(async (url, init) => {
+    captured = { url: String(url), init };
+    return response(200, {
+      response_code: 0,
+      data: { sha256: 'c'.repeat(64) },
+    });
+  });
+
+  await handlers[METHOD_UPLOAD_FILE_FULL](
+    { file_bytes_base64: 'YQ==', run_time: 0 },
+    buildCtx(),
+  );
+
+  assert.equal(captured.init.body.has('run_time'), false);
+});
+
 test('GetFileReport sends GET query and maps summary data', async () => {
   let captured;
   setFetch(async (url, init) => {
@@ -236,6 +255,69 @@ test('GetFileReport sends GET query and maps summary data', async () => {
   assert.equal(result.permalink, 'https://s.threatbook.com/report/file/example');
 });
 
+test('GetFileReport omits sandbox_type when it is not configured', async () => {
+  let captured;
+  setFetch(async (url, init) => {
+    captured = { url: String(url), init };
+    return response(200, {
+      response_code: 0,
+      verbose_msg: 'OK',
+      data: { summary: { threat_level: 'clean' } },
+    });
+  });
+
+  const result = await handlers[METHOD_GET_FILE_REPORT_FULL](
+    { resource: 'a'.repeat(64) },
+    buildCtx(),
+  );
+
+  const url = new URL(captured.url);
+  assert.equal(url.searchParams.has('sandbox_type'), false);
+  assert.equal(result.response_code, 0);
+  assert.equal(result.summary.threat_level, 'clean');
+});
+
+test('GetFileReport survives OctoBus gRPC serialization', async () => {
+  setFetch(async () => response(200, {
+    response_code: 0,
+    verbose_msg: 'OK',
+    data: {
+      summary: { threat_level: 'clean' },
+      permalink: 'https://s.threatbook.com/report/file/serialized',
+      behaviors: [{ action: 'file_write', target: '/tmp/sample.bin' }],
+    },
+  }));
+
+  const result = await handlers[METHOD_GET_FILE_REPORT_FULL](
+    { resource: 'a'.repeat(64) },
+    buildCtx(),
+  );
+  const method = threatBookService.definition.GetFileReport;
+  const decoded = method.responseDeserialize(method.responseSerialize(result));
+
+  assert.equal(decoded.data.kind.case, 'structValue');
+  assert.equal(decoded.data.kind.value.fields.summary.kind.case, 'structValue');
+  assert.equal(
+    decoded.data.kind.value.fields.summary.kind.value.fields.threat_level.kind.value,
+    'clean',
+  );
+});
+
+test('GetFileReport exposes processing response codes', async () => {
+  setFetch(async () => response(200, {
+    response_code: 7,
+    verbose_msg: 'processing',
+    data: {},
+  }));
+
+  const result = await handlers[METHOD_GET_FILE_REPORT_FULL](
+    { resource: 'a'.repeat(64) },
+    buildCtx(),
+  );
+
+  assert.equal(result.response_code, 7);
+});
+
 test('GetMultiEnginesReport sends GET query and maps multi-engine data', async () => {
   let captured;
   setFetch(async (url, init) => {
@@ -271,7 +353,7 @@ test('GetMultiEnginesReport sends GET query and maps multi-engine data', async (
   assert.equal(captured.init.method, 'GET');
   assert.equal(result.multiengines.threat_level, 'malicious');
   assert.equal(result.multiengines.positives, 9);
-  assert.deepEqual(result.multiengines.scans.structValue.fields.Microsoft, { stringValue: 'DoS:Linux/Xorddos!rfn' });
+  assert.equal(result.multiengines.scans.Microsoft, 'DoS:Linux/Xorddos!rfn');
 });
 
 test('supports SDK context-only handler invocation and aliases', async () => {
@@ -468,6 +550,8 @@ test('helper branches are stable', () => {
   assert.equal(_test.resolveTimeoutMs({ bindings: { timeoutMs: 0 } }), 1500);
   assert.equal(_test.normalizeRunTime({}), undefined);
   assert.equal(_test.normalizeQueryFields({ query_fields: [{ value: 'summary' }, 'multiengines'] }).length, 2);
+  assert.equal(_test.normalizeSandboxType({}), '');
+  assert.equal(_test.normalizeSandboxType({ sandbox_type: ' win10 ' }), 'win10');
   assert.deepEqual(_test.splitHandlerArgs({ resource: 'x' }).req, { resource: 'x' });
   assert.deepEqual(_test.splitHandlerArgs({ request: { resource: 'y' }, secret: {} }).req, { resource: 'y' });
 });

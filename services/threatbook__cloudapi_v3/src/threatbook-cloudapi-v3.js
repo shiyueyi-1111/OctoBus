@@ -3,9 +3,11 @@ import { Agent } from 'undici';
 
 export const METHOD_IP_REPUTATION_PATH = '/ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/IpReputation';
 export const METHOD_DOMAIN_QUERY_PATH = '/ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/DomainQuery';
+export const METHOD_SCENE_DNS_PATH = '/ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/SceneDns';
 
 export const METHOD_IP_REPUTATION_FULL = 'ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/IpReputation';
 export const METHOD_DOMAIN_QUERY_FULL = 'ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/DomainQuery';
+export const METHOD_SCENE_DNS_FULL = 'ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/SceneDns';
 
 export const DEFAULT_TIMEOUT_MS = 1500;
 export const DEFAULT_LANG = 'zh';
@@ -174,6 +176,19 @@ const toValue = (value) => {
   return { stringValue: String(value) };
 };
 
+const redactValue = (value, sensitiveValues = []) => {
+  if (typeof value === 'string') return redactSensitive(value, sensitiveValues);
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, sensitiveValues));
+  if (value !== null && typeof value === 'object') {
+    const out = {};
+    for (const [key, innerValue] of Object.entries(value)) {
+      out[key] = redactValue(innerValue, sensitiveValues);
+    }
+    return out;
+  }
+  return value;
+};
+
 const throwStructuredError = (code, message, options = {}) => {
   const rawBody = String(options.rawBody ?? '');
   const sensitiveValues = options.sensitiveValues || [];
@@ -294,7 +309,7 @@ const parseThreatBookResponse = (result) => {
   return {
     http_status: result.httpStatus,
     raw_body: '',
-    raw_json: undefined,
+    raw_json: toValue(redactValue(ok.json, parsed.sensitiveValues)),
   };
 };
 
@@ -304,7 +319,7 @@ const handleIpReputation = async (req = {}, ctx = {}) => {
   const apiKey = requireApiKey(callCtx);
   const resource = requireResource(req, 'ip');
   const lang = normalizeLang(req);
-  const url = buildUrl(domain, '/1.1.1/scene/ip_reputation', {
+  const url = buildUrl(domain, '/v3/scene/ip_reputation', {
     apikey: apiKey,
     lang,
     resource,
@@ -328,17 +343,33 @@ const handleDomainQuery = async (req = {}, ctx = {}) => {
   return parseThreatBookResponse(await fetchUpstream(url, callCtx));
 };
 
+const handleSceneDns = async (req = {}, ctx = {}) => {
+  const callCtx = resolveCallContext(ctx);
+  const domain = requireDomain(callCtx);
+  const apiKey = requireApiKey(callCtx);
+  const resource = requireResource(req, 'ip');
+  const lang = normalizeLang(req);
+  const url = buildUrl(domain, '/v3/scene/dns', {
+    apikey: apiKey,
+    lang,
+    resource,
+  });
+  return parseThreatBookResponse(await fetchUpstream(url, callCtx));
+};
+
 export function rpcdef(ctx = {}) {
   const callCtx = resolveCallContext(ctx);
   return {
     [METHOD_IP_REPUTATION_PATH]: async (req) => handleIpReputation(req ?? callCtx.req ?? {}, callCtx),
     [METHOD_DOMAIN_QUERY_PATH]: async (req) => handleDomainQuery(req ?? callCtx.req ?? {}, callCtx),
+    [METHOD_SCENE_DNS_PATH]: async (req) => handleSceneDns(req ?? callCtx.req ?? {}, callCtx),
   };
 }
 
 export const handlers = {
   [METHOD_IP_REPUTATION_FULL]: (ctx = {}) => handleIpReputation(requestFromContext(ctx), ctx),
   [METHOD_DOMAIN_QUERY_FULL]: (ctx = {}) => handleDomainQuery(requestFromContext(ctx), ctx),
+  [METHOD_SCENE_DNS_FULL]: (ctx = {}) => handleSceneDns(requestFromContext(ctx), ctx),
 };
 
 export const _test = {
@@ -362,6 +393,7 @@ export const _test = {
   normalizeLang,
   parseThreatBookResponse,
   redactSensitive,
+  redactValue,
   requireApiKey,
   requireDomain,
   requireResource,

@@ -43,6 +43,7 @@ message FileReportResponse {
   FileReportSummary summary = 4;
   string permalink = 5;
   google.protobuf.Value data = 6;
+  int32 response_code = 7;
 }
 
 message FileReportSummary {

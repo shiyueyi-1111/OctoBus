@@ -26,6 +26,10 @@
         "ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/DomainQuery": {
           "name": "domain-query",
           "description": "Query ThreatBook CloudAPI V3 domain intelligence."
+        },
+        "ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/SceneDns": {
+          "name": "scene-dns",
+          "description": "Query ThreatBook CloudAPI V3 compromise detection."
         }
       }
     }

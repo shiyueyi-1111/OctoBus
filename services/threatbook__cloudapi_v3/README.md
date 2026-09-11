@@ -1,6 +1,7 @@
 # ThreatBook CloudAPI V3
 
-OctoBus service package for ThreatBook CloudAPI V3 IP reputation and domain query APIs.
+OctoBus service package for ThreatBook CloudAPI V3 IP reputation, domain query, and
+compromise detection APIs.
 
 Service name: `threatbook-cloudapi-v3`.
 
@@ -65,7 +66,7 @@ Request:
 }
 ```
 
-Calls `GET {threatbook_domain}/1.1.1/scene/ip_reputation` with `apikey`, `lang`, and `resource`.
+Calls `GET {threatbook_domain}/v3/scene/ip_reputation` with `apikey`, `lang`, and `resource`.
 
 ### DomainQuery
 
@@ -87,14 +88,40 @@ Request:
 
 Calls `GET {threatbook_domain}/1.1.1/domain/query` with `apikey`, `lang`, `resource`, and `exclude`.
 
+The account currently configured for the file-risk project does not list
+`v3/domain/query` in its API permissions. Keep this method only when the deployment
+account confirms that the legacy domain endpoint remains available; otherwise treat
+domain lookup as an external capability gap.
+
+### SceneDns
+
+Full method:
+
+```text
+ThreatBook_CloudAPI_V3.ThreatBook_CloudAPI_V3/SceneDns
+```
+
+Request:
+
+```json
+{
+  "resource": "8.8.8.8",
+  "lang": "zh"
+}
+```
+
+Calls `GET {threatbook_domain}/v3/scene/dns` with `apikey`, `lang`, and `resource`.
+
 ## Behavior
 
-- `IpReputation` calls `GET {threatbook_domain}/1.1.1/scene/ip_reputation`.
+- `IpReputation` calls `GET {threatbook_domain}/v3/scene/ip_reputation`.
 - `DomainQuery` calls `GET {threatbook_domain}/1.1.1/domain/query`.
+- `SceneDns` calls `GET {threatbook_domain}/v3/scene/dns`.
 - `lang` defaults to `zh`.
 - `DomainQuery.exclude` defaults to `cas`.
 - Success requires HTTP `200` and ThreatBook `response_code == 0`.
-- Successful RPC responses return `http_status`. `raw_body` is intentionally empty and `raw_json` is not populated to avoid retaining upstream payloads that may contain sensitive data.
+- Successful RPC responses return `http_status` and a secret-redacted `raw_json`.
+  `raw_body` is intentionally empty.
 
 Errors preserve the legacy structured JSON message convention:
 
@@ -128,7 +155,8 @@ node threatbook__cloudapi_v3/bin/threatbook-cloudapi-v3.js ip-reputation --data-
 
 - API keys must come from instance secrets; request fields named `apikey` or `apiKey` are ignored.
 - Queried IPs/domains are sent to ThreatBook and may consume quota.
-- Upstream response bodies are not returned or logged by the package.
+- Upstream response bodies are not logged. Successful payloads are returned in
+  `raw_json` after exact secret redaction.
 - Use a non-production API key and benign indicators for validation evidence.
 
 ## Validation

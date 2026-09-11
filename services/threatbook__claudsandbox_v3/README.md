@@ -117,6 +117,7 @@ Behavior:
 - Sends `GET {threatbook_domain}/v3/file/report`.
 - Sends query parameters `apikey`, `resource`, `sandbox_type`, and repeated optional `query_fields`.
 - `resource` and `sha256` are accepted aliases.
+- `sandbox_type` is optional and omitted from the upstream query when not provided.
 - Success requires HTTP `200` and ThreatBook `response_code == 0`.
 - Response returns `http_status`, normalized `summary`, `permalink`, and raw `data`. `raw_body` is intentionally empty and `raw_json` is not populated to avoid retaining upstream payloads that may contain sensitive data.
 

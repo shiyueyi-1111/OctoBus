@@ -144,24 +144,6 @@ const tryParseJson = (text) => {
   }
 };
 
-const toValue = (value) => {
-  if (value === undefined || value === null) return { nullValue: 'NULL_VALUE' };
-  if (typeof value === 'string') return { stringValue: value };
-  if (typeof value === 'boolean') return { boolValue: value };
-  if (typeof value === 'number') return Number.isFinite(value) ? { numberValue: value } : { stringValue: String(value) };
-  if (Array.isArray(value)) {
-    return { listValue: { values: value.map((item) => toValue(item)) } };
-  }
-  if (typeof value === 'object') {
-    const fields = {};
-    for (const [key, innerValue] of Object.entries(value)) {
-      fields[key] = toValue(innerValue);
-    }
-    return { structValue: { fields } };
-  }
-  return { stringValue: String(value) };
-};
-
 const throwStructuredError = (code, message, options = {}) => {
   const rawBody = String(options.rawBody ?? '');
   const sensitiveValues = options.sensitiveValues || [];
@@ -226,7 +208,7 @@ const fetchUpstream = async (url, init, ctx = {}) => {
   return result;
 };
 
-const assertThreatBookSuccess = ({ httpStatus, rawBody }, parsed) => {
+const assertThreatBookSuccess = ({ httpStatus, rawBody }, parsed, options = {}) => {
   if (httpStatus !== 200) {
     throwStructuredError(mapHttpStatusToGrpcCode(httpStatus), 'threatbook upstream http failure', {
       httpStatus,
@@ -259,7 +241,8 @@ const assertThreatBookSuccess = ({ httpStatus, rawBody }, parsed) => {
     });
   }
 
-  if (responseCode !== 0) {
+  const processing = options.allowProcessing && (responseCode === 3 || responseCode === 7);
+  if (responseCode !== 0 && !processing) {
     const grpcCode = responseCode === 401 || responseCode === 1101 ? 'UNAUTHENTICATED' : 'FAILED_PRECONDITION';
     throwStructuredError(grpcCode, 'threatbook upstream business failure', {
       httpStatus,
@@ -275,11 +258,11 @@ const assertThreatBookSuccess = ({ httpStatus, rawBody }, parsed) => {
   return parsed.value;
 };
 
-const parseThreatBookJSON = (result) => {
+const parseThreatBookJSON = (result, options = {}) => {
   const trimmed = result.rawBody.trim();
   const parsed = trimmed ? tryParseJson(trimmed) : { ok: false };
   parsed.sensitiveValues = result.sensitiveValues || [];
-  return assertThreatBookSuccess(result, parsed);
+  return assertThreatBookSuccess(result, parsed, options);
 };
 
 const toInt = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
@@ -328,6 +311,7 @@ const normalizeRunTime = (req = {}) => {
   const raw = unwrapScalar(req.run_time ?? req.runTime);
   if (raw === undefined || raw === null || raw === '') return undefined;
   const value = Number(raw);
+  if (value === 0) return undefined;
   if (!Number.isInteger(value) || value <= 0) throw errorWithCode('INVALID_ARGUMENT', 'run_time must be a positive integer');
   return value;
 };
@@ -338,11 +322,7 @@ const requireResource = (req = {}) => {
   return resource;
 };
 
-const requireSandboxType = (req = {}) => {
-  const sandboxType = toTrimmedString(req.sandbox_type ?? req.sandboxType);
-  if (!sandboxType) throw errorWithCode('INVALID_ARGUMENT', 'sandbox_type is required');
-  return sandboxType;
-};
+const normalizeSandboxType = (req = {}) => toTrimmedString(req.sandbox_type ?? req.sandboxType);
 
 const normalizeQueryFields = (req = {}) => {
   const raw = req.query_fields ?? req.queryFields;
@@ -356,7 +336,6 @@ const mapUploadResponse = (result) => {
   return {
     http_status: result.httpStatus,
     raw_body: '',
-    raw_json: undefined,
     sha256: toTrimmedString(json.data?.sha256),
     permalink: toTrimmedString(json.data?.permalink),
   };
@@ -381,21 +360,21 @@ const mapSummary = (raw = {}) => ({
 });
 
 const mapFileReportResponse = (result) => {
-  const json = parseThreatBookJSON(result);
+  const json = parseThreatBookJSON(result, { allowProcessing: true });
   return {
     http_status: result.httpStatus,
     raw_body: '',
-    raw_json: undefined,
+    response_code: toInt(json.response_code),
     summary: mapSummary(json.data?.summary ?? {}),
     permalink: toTrimmedString(json.data?.permalink),
-    data: toValue(json.data ?? {}),
+    data: json.data ?? {},
   };
 };
 
 const mapMultiEngines = (raw = {}) => ({
   threat_level: toTrimmedString(raw.threat_level),
   total: toInt(raw.total),
-  scans: toValue(raw.scans ?? {}),
+  scans: raw.scans ?? {},
   is_white: Boolean(raw.is_white),
   total2: toInt(raw.total2),
   positives: toInt(raw.positives),
@@ -409,9 +388,8 @@ const mapMultiEnginesReportResponse = (result) => {
   return {
     http_status: result.httpStatus,
     raw_body: '',
-    raw_json: undefined,
     multiengines: mapMultiEngines(json.data?.multiengines ?? {}),
-    data: toValue(json.data ?? {}),
+    data: json.data ?? {},
   };
 };
 
@@ -436,13 +414,14 @@ const handleGetFileReport = async (req = {}, ctx = {}) => {
   const domain = requireDomain(callCtx);
   const apiKey = requireApiKey(callCtx);
   const resource = requireResource(req);
-  const sandboxType = requireSandboxType(req);
+  const sandboxType = normalizeSandboxType(req);
   const queryFields = normalizeQueryFields(req);
-  const endpoint = buildUrl(domain, FILE_REPORT_HTTP_PATH, {
+  const query = {
     apikey: apiKey,
     resource,
-    sandbox_type: sandboxType,
-  }, {
+  };
+  if (sandboxType) query.sandbox_type = sandboxType;
+  const endpoint = buildUrl(domain, FILE_REPORT_HTTP_PATH, query, {
     query_fields: queryFields,
   });
   return mapFileReportResponse(await fetchUpstream(endpoint, { method: 'GET' }, callCtx));
@@ -517,13 +496,13 @@ export const _test = {
   normalizeBaseUrl,
   normalizeQueryFields,
   normalizeRunTime,
+  normalizeSandboxType,
   parseThreatBookJSON,
   readFileFromRequest,
   redactSensitive,
   requireApiKey,
   requireDomain,
   requireResource,
-  requireSandboxType,
   resolveApiKey,
   resolveCallContext,
   resolveDomain,
@@ -533,7 +512,6 @@ export const _test = {
   toInt,
   toStringArray,
   toTrimmedString,
-  toValue,
   tryParseJson,
   unwrapScalar,
 };

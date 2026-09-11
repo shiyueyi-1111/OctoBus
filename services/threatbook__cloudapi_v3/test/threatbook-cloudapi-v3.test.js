@@ -8,6 +8,8 @@ import {
   METHOD_DOMAIN_QUERY_PATH,
   METHOD_IP_REPUTATION_FULL,
   METHOD_IP_REPUTATION_PATH,
+  METHOD_SCENE_DNS_FULL,
+  METHOD_SCENE_DNS_PATH,
   _test,
   handlers,
   rpcdef,
@@ -78,9 +80,11 @@ test('service exports handlers and rpcdef paths', () => {
   assert.equal(typeof service, 'object');
   assert.equal(typeof handlers[METHOD_IP_REPUTATION_FULL], 'function');
   assert.equal(typeof handlers[METHOD_DOMAIN_QUERY_FULL], 'function');
+  assert.equal(typeof handlers[METHOD_SCENE_DNS_FULL], 'function');
   const defs = rpcdef(buildCtx());
   assert.equal(typeof defs[METHOD_IP_REPUTATION_PATH], 'function');
   assert.equal(typeof defs[METHOD_DOMAIN_QUERY_PATH], 'function');
+  assert.equal(typeof defs[METHOD_SCENE_DNS_PATH], 'function');
 });
 
 test('validates required bindings and resource', async () => {
@@ -135,7 +139,7 @@ test('IpReputation sends default query and returns raw body and raw json', async
   );
 
   const url = new URL(captured.url);
-  assert.equal(`${url.origin}${url.pathname}`, 'https://api.threatbook.cn/1.1.1/scene/ip_reputation');
+  assert.equal(`${url.origin}${url.pathname}`, 'https://api.threatbook.cn/v3/scene/ip_reputation');
   assert.equal(url.searchParams.get('apikey'), 'test_api_key');
   assert.equal(url.searchParams.get('lang'), 'zh');
   assert.equal(url.searchParams.get('resource'), '8.8.8.8');
@@ -148,7 +152,7 @@ test('IpReputation sends default query and returns raw body and raw json', async
   assert.equal(captured.init.insecureSkipVerify, undefined);
   assert.equal(result.http_status, 200);
   assert.equal(result.raw_body, '');
-  assert.equal(result.raw_json, undefined);
+  assert.equal(result.raw_json.structValue.fields.data.structValue.fields.risk.stringValue, 'low');
 });
 
 test('DomainQuery sends default exclude and supports aliases', async () => {
@@ -176,7 +180,7 @@ test('DomainQuery sends default exclude and supports aliases', async () => {
   assert.equal(url.searchParams.get('exclude'), 'cas');
   assert.ok(captured.init.signal instanceof AbortSignal);
   assert.equal(captured.init.timeoutMs, undefined);
-  assert.equal(result.raw_json, undefined);
+  assert.equal(result.raw_json.structValue.fields.data.structValue.fields.kind.stringValue, 'domain_query');
 });
 
 test('DomainQuery sends explicit exclude from scalar wrapper', async () => {
@@ -194,6 +198,32 @@ test('DomainQuery sends explicit exclude from scalar wrapper', async () => {
 
   const url = new URL(captured);
   assert.equal(url.searchParams.get('exclude'), 'intel');
+});
+
+test('SceneDns calls compromise detection and returns redacted raw json', async () => {
+  let captured;
+  setFetch(async (url, init) => {
+    captured = { url: String(url), init };
+    return response(200, {
+      response_code: 0,
+      verbose_msg: 'OK',
+      data: { kind: 'scene_dns', echoed: 'test_api_key' },
+    });
+  });
+
+  const result = await callHandler(METHOD_SCENE_DNS_FULL,
+    { resource: '203.0.113.10', lang: 'en' },
+    buildCtx(),
+  );
+
+  const url = new URL(captured.url);
+  assert.equal(`${url.origin}${url.pathname}`, 'https://api.threatbook.cn/v3/scene/dns');
+  assert.equal(url.searchParams.get('apikey'), 'test_api_key');
+  assert.equal(url.searchParams.get('lang'), 'en');
+  assert.equal(url.searchParams.get('resource'), '203.0.113.10');
+  assert.equal(captured.init.method, 'GET');
+  assert.equal(result.raw_json.structValue.fields.data.structValue.fields.kind.stringValue, 'scene_dns');
+  assert.equal(result.raw_json.structValue.fields.data.structValue.fields.echoed.stringValue, '<redacted>');
 });
 
 test('request fields cannot override secret and structured errors redact api key', async () => {
@@ -337,7 +367,7 @@ test('DomainQuery exposes upstream failure mapping', async () => {
 test('rpcdef falls back to context request when call request is omitted', async () => {
   setFetch(async () => response(200, { response_code: 0, verbose_msg: 'OK', data: { resource: '1.1.1.1' } }));
   const result = await rpcdef(buildCtx({ req: { resource: '1.1.1.1' } }))[METHOD_IP_REPUTATION_PATH]();
-  assert.equal(result.raw_json, undefined);
+  assert.equal(result.raw_json.structValue.fields.data.structValue.fields.resource.stringValue, '1.1.1.1');
 });
 
 test('helper functions cover normalization branches', () => {
@@ -391,7 +421,14 @@ test('helper functions cover normalization branches', () => {
   assert.deepEqual(_test.parseThreatBookResponse({
     httpStatus: 200,
     rawBody: '{"response_code":0,"data":[null]}',
-  }).raw_json, undefined);
+  }).raw_json, {
+    structValue: {
+      fields: {
+        response_code: { numberValue: 0 },
+        data: { listValue: { values: [{ nullValue: 'NULL_VALUE' }] } },
+      },
+    },
+  });
 });
 
 test('throwStructuredError includes optional fields', () => {
@@ -437,17 +474,20 @@ test('mock upstream handles success and simulated failures', async () => {
     const ctx = buildCtx({ config: { threatbook_domain: server.url } });
     const ip = await callHandler(METHOD_IP_REPUTATION_FULL, { resource: '8.8.8.8' }, ctx);
     const domain = await callHandler(METHOD_DOMAIN_QUERY_FULL, { resource: 'example.com' }, ctx);
-    assert.equal(ip.raw_json, undefined);
-    assert.equal(domain.raw_json, undefined);
+    const sceneDns = await callHandler(METHOD_SCENE_DNS_FULL, { resource: '203.0.113.10' }, ctx);
+    assert.equal(ip.raw_json.structValue.fields.data.structValue.fields.kind.stringValue, 'ip_reputation');
+    assert.equal(domain.raw_json.structValue.fields.data.structValue.fields.kind.stringValue, 'domain_query');
+    assert.equal(sceneDns.raw_json.structValue.fields.data.structValue.fields.kind.stringValue, 'scene_dns');
 
     await expectGrpcError(() => callHandler(METHOD_IP_REPUTATION_FULL, { resource: 'bizfail.example' }, ctx), 'FAILED_PRECONDITION');
     await expectGrpcError(() => callHandler(METHOD_IP_REPUTATION_FULL, { resource: 'http401.example' }, ctx), 'PERMISSION_DENIED');
     await expectGrpcError(() => callHandler(METHOD_IP_REPUTATION_FULL, { resource: 'http500.example' }, ctx), 'UNAVAILABLE');
     await expectGrpcError(() => callHandler(METHOD_IP_REPUTATION_FULL, { resource: 'invalid-json.example' }, ctx), 'UNKNOWN');
 
-    assert.equal(server.requests[0].path, '/1.1.1/scene/ip_reputation');
+    assert.equal(server.requests[0].path, '/v3/scene/ip_reputation');
     assert.equal(server.requests[1].path, '/1.1.1/domain/query');
     assert.equal(server.requests[1].query.exclude, 'cas');
+    assert.equal(server.requests[2].path, '/v3/scene/dns');
   } finally {
     await server.close();
   }

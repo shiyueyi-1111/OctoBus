@@ -39,7 +39,11 @@ export const createMockServer = async ({ expectedApiKey = 'test_api_key' } = {})
       res.end('not found');
       return;
     }
-    if (path !== '/1.1.1/scene/ip_reputation' && path !== '/1.1.1/domain/query') {
+    if (
+      path !== '/v3/scene/ip_reputation'
+      && path !== '/1.1.1/domain/query'
+      && path !== '/v3/scene/dns'
+    ) {
       res.writeHead(404);
       res.end('not found');
       return;
@@ -82,7 +86,9 @@ export const createMockServer = async ({ expectedApiKey = 'test_api_key' } = {})
       response_code: 0,
       verbose_msg: 'OK',
       data: {
-        kind: path.includes('ip_reputation') ? 'ip_reputation' : 'domain_query',
+        kind: path.includes('ip_reputation')
+          ? 'ip_reputation'
+          : (path.includes('scene/dns') ? 'scene_dns' : 'domain_query'),
         resource,
         lang: query.lang || 'zh',
         exclude: query.exclude || '',
